@@ -5,7 +5,7 @@ import { api } from '../lib/api';
 import { useApp } from '../stores/app';
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode] = useState<'login'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -24,8 +24,7 @@ export default function LoginPage() {
     setError('');
     setBusy(true);
     try {
-      if (mode === 'login') await api.login(username, password);
-      else await api.register(username, password);
+      await api.login(username, password);
       await checkAuth();
     } catch (err: any) {
       setError(err.message ?? '操作失败');
@@ -41,10 +40,6 @@ export default function LoginPage() {
           <Presentation className="h-10 w-10 text-orange-600" />
           <h1 className="text-xl font-bold">PPTByBy</h1>
           <p className="text-xs text-neutral-400">AI 原生可编辑 PPT 生成平台</p>
-        </div>
-        <div className="mb-4 flex rounded-lg bg-neutral-100 p-1 text-sm">
-          <button type="button" className={`flex-1 rounded-md py-1.5 ${mode === 'login' ? 'bg-white shadow-sm font-medium' : 'text-neutral-500'}`} onClick={() => setMode('login')}>登录</button>
-          <button type="button" className={`flex-1 rounded-md py-1.5 ${mode === 'register' ? 'bg-white shadow-sm font-medium' : 'text-neutral-500'}`} onClick={() => setMode('register')}>注册</button>
         </div>
         <input
           className="mb-3 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-orange-400"
@@ -64,7 +59,7 @@ export default function LoginPage() {
           className="w-full rounded-lg bg-orange-600 py-2.5 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-50"
           disabled={busy || !username || !password}
         >
-          {busy ? '请稍候…' : mode === 'login' ? '登录' : '注册（送 20 积分）'}
+          {busy ? '请稍候…' : '登录'}
         </button>
       </form>
     </div>

@@ -37,10 +37,10 @@ describe('auth', () => {
     expect(r.code).toBe(401);
   });
 
-  it('注册新用户送 20 积分', async () => {
+  it('注册已关闭（403）', async () => {
     const r = await req('POST', '/api/auth/register', { username: 'alice', password: 'pass123' });
-    expect(r.code).toBe(200);
-    expect(r.body.credits).toBe(20);
+    expect(r.code).toBe(403);
+    expect(r.body.error).toContain('注册已关闭');
   });
 
   it('未登录访问受限接口 401', async () => {

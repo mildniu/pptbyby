@@ -88,20 +88,9 @@ export async function buildApp(opts: AppOptions) {
     return { id: u.id, username: u.username, role: u.role, credits: u.credits };
   });
 
-  app.post('/api/auth/register', async (req, reply) => {
-    const { username, password } = req.body as any;
-    if (!username || !password || String(password).length < 4) {
-      return reply.code(400).send({ error: '用户名和密码必填（密码≥4位）' });
-    }
-    const exists = db.prepare('SELECT id FROM users WHERE username=?').get(String(username));
-    if (exists) return reply.code(409).send({ error: '用户名已存在' });
-    const id = `u_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    const { hashPassword } = await import('./crypto.js');
-    db.prepare('INSERT INTO users(id, username, password_hash, role, credits, created_at) VALUES (?,?,?,?,?,?)').run(
-      id, String(username), hashPassword(String(password)), 'user', 20, Date.now()
-    );
-    setSession(reply, id, 'user');
-    return { id, username, role: 'user', credits: 20 };
+  app.post('/api/auth/register', async (_req, reply) => {
+    // 注册已关闭：账号由管理员在「用户管理」中创建
+    return reply.code(403).send({ error: '注册已关闭，请联系管理员创建账号' });
   });
 
   app.get('/api/auth/me', async (req, reply) => {
