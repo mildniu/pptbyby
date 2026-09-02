@@ -49,15 +49,16 @@ export function runPython(script: string, args: string[], opts: { timeoutMs?: nu
   });
 }
 
-/** 质检 SVG（stage: page 需传 projectPath+pageFile；final 传 projectPath）。报告读自 validation/ 目录 */
+/** 质检 SVG（stage: page 需传 projectPath+pageFile；final 传 projectPath）。
+ *  均走 quick-generate 契约（无 spec_lock 的项目必需，否则项目级检查报错）。
+ *  报告读自 validation/ 目录 */
 export async function qualityCheck(
   target: string,
   stage: 'page' | 'final',
   pageFile?: string,
 ): Promise<{ ok: boolean; report: any; raw: string }> {
-  const args = [target, '--stage', stage];
+  const args = [target, '--stage', stage, '--quick-generate'];
   if (stage === 'page' && pageFile) args.push('--page', pageFile);
-  if (stage === 'final') args.push('--quick-generate');
   args.push('--json');
   const r = await runPython('svg_quality_checker.py', args, { timeoutMs: 180000 });
   // 报告文件优先（stdout 混杂日志不可靠）

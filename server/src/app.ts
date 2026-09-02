@@ -10,6 +10,7 @@ import { verifyPassword, signToken, verifyToken, maskKey } from './crypto.js';
 import { getUserGatewayConfig, saveUserGatewayConfig, clearUserGatewayConfig, listGatewayModels, testTavilyKey } from './gateway.js';
 import { loadBuiltinTemplates, builtinSpecText } from './builtinTemplates.js';
 import { createTask, confirmTask, cancelTask, TASK_MODES, type TaskMode } from './orchestrator.js';
+import { runBeautify, runEditNative, runCreateTemplate, runImageToPptx } from './routes.js';
 import { log, logError } from './logger.js';
 
 export interface AppOptions {
@@ -168,11 +169,18 @@ export async function buildApp(opts: AppOptions) {
   // ---------- 任务 ----------
   app.post('/api/tasks', async (req, reply) => {
     const auth = requireAuth(req, reply); if (!auth) return;
-    const { mode, topic, sourceText, pages, format, styleHint, audience, language, templateId, assetIds } = req.body as any;
+    const { mode, topic, sourceText, pages, format, styleHint, audience, language, templateId, assetIds, instruction, name, description, fileId, fileIds, research } = req.body as any;
     const m = (TASK_MODES.find((x) => x.id === mode)?.id ?? 'generate') as TaskMode;
     const ready = TASK_MODES.find((x) => x.id === m)?.ready;
     if (!ready) return reply.code(400).send({ error: '该模式即将上线' });
-    if (!topic && !sourceText) return reply.code(400).send({ error: '请填写主题或源材料' });
+    const legacyModes = ['generate', 'quick'];
+    if (legacyModes.includes(m) && !topic && !sourceText) {
+      return reply.code(400).send({ error: '请填写主题或源材料' });
+    }
+    if (m === 'beautify' && !fileId) return reply.code(400).send({ error: '请上传要美化的 PPTX' });
+    if (m === 'edit_native' && !fileId) return reply.code(400).send({ error: '请上传要编辑的 PPTX' });
+    if (m === 'create_template' && !name) return reply.code(400).send({ error: '请填写模板名称' });
+    if (m === 'image_to_pptx' && !(Array.isArray(fileIds) && fileIds.length)) return reply.code(400).send({ error: '请上传页面截图' });
     const p = Math.min(30, Math.max(0, Number(pages) || 0)); // 0 = AI 决定
     const id = createTask(
       { db, secretKey: SECRET, dataDir: opts.dataDir },
@@ -182,9 +190,22 @@ export async function buildApp(opts: AppOptions) {
         pages: p, format: format ?? 'ppt169', styleHint, audience, language,
         templateId: templateId || null,
         assetIds: Array.isArray(assetIds) ? assetIds.map(String).slice(0, 10) : [],
+        instruction: String(instruction ?? '').slice(0, 5000),
+        name: name ? String(name).slice(0, 100) : undefined,
+        description: description ? String(description).slice(0, 500) : undefined,
+        fileId: fileId ? String(fileId) : undefined,
+        fileIds: Array.isArray(fileIds) ? fileIds.map(String).slice(0, 30) : [],
+        research: Boolean(research),
       }
     );
     log('TASK', `用户 [${auth.uid}] 创建任务 ${id} (mode=${m}, pages=${p || 'AI'}, assets=${assetIds?.length ?? 0}, tpl=${templateId ?? '-'})`);
+
+    // 4 条新路由：无规划阶段，直接分发执行
+    const routeDeps = { db, secretKey: SECRET, dataDir: opts.dataDir };
+    if (m === 'beautify') void runBeautify(routeDeps, id);
+    else if (m === 'edit_native') void runEditNative(routeDeps, id);
+    else if (m === 'create_template') void runCreateTemplate(routeDeps, id);
+    else if (m === 'image_to_pptx') void runImageToPptx(routeDeps, id);
     return { id };
   });
 
@@ -196,8 +217,10 @@ export async function buildApp(opts: AppOptions) {
     mkdirSync(uploadDir, { recursive: true });
     const results: { id: string; filename: string; url: string }[] = [];
     for await (const file of files) {
-      if (!file.mimetype?.startsWith('image/')) {
-        return reply.code(400).send({ error: `仅支持图片文件，收到 ${file.mimetype}` });
+      const isImage = file.mimetype?.startsWith('image/');
+      const isPptx = file.mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || /\.pptx$/i.test(file.filename);
+      if (!isImage && !isPptx) {
+        return reply.code(400).send({ error: `仅支持图片或 PPTX 文件，收到 ${file.mimetype || file.filename}` });
       }
       const buf = await file.toBuffer();
       if (buf.length > 20 * 1024 * 1024) return reply.code(400).send({ error: `${file.filename} 超过 20MB 上限` });

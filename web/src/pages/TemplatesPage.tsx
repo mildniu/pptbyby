@@ -40,7 +40,7 @@ function styleFromForm(f: TemplateForm) {
 }
 
 /** 内置模板卡片（只读，含参考图） */
-function BuiltinCard({ t, onPreview }: { t: BuiltinTemplate; onPreview: (url: string, title: string) => void }) {
+function BuiltinCard({ t, onPreview }: { t: BuiltinTemplate; onPreview: (list: { url: string; title: string }[], index: number) => void }) {
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white p-5">
       <div className="mb-2 flex items-start justify-between">
@@ -61,9 +61,9 @@ function BuiltinCard({ t, onPreview }: { t: BuiltinTemplate; onPreview: (url: st
       </div>
       {t.refImages.length > 0 && (
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-          {t.refImages.map((img) => (
+          {t.refImages.map((img, idx) => (
             <div key={img.url} className="group relative h-20 w-32 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50"
-              onClick={() => onPreview(img.url, `${t.name} · ${img.name}`)}>
+              onClick={() => onPreview(t.refImages.map((im) => ({ url: im.url, title: `${t.name} · ${im.name}` })), idx)}>
               {img.url.endsWith('.svg') ? (
                 <img src={img.url} alt={img.name} className="h-full w-full object-contain" />
               ) : (
@@ -86,7 +86,11 @@ export default function TemplatesPage() {
   const [editing, setEditing] = useState<{ id: string | null; form: TemplateForm } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
+  const [preview, setPreview] = useState<{ list: { url: string; title: string }[]; index: number } | null>(null);
+  const openPreview = (list: { url: string; title: string }[], index: number) => setPreview({ list, index });
+  const stepPreview = (delta: number) => {
+    setPreview((pv) => (pv ? { ...pv, index: (pv.index + delta + pv.list.length) % pv.list.length } : pv));
+  };
   const [tab, setTab] = useState<'builtin' | 'mine'>('builtin');
 
   const load = () => api.listTemplates().then((r) => setTemplates(r.templates)).catch(() => setTemplates([]));
@@ -113,14 +117,14 @@ export default function TemplatesPage() {
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
-  const builtinGroups = (['brand', 'style', 'deck'] as const).map((k) => ({ kind: k, items: builtin.filter((b) => b.kind === k) }));
+  const builtinGroups = (['deck', 'brand', 'style'] as const).map((k) => ({ kind: k, items: builtin.filter((b) => b.kind === k) }));
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">模板库</h1>
-          <p className="mt-0.5 text-sm text-neutral-500">内置 34 个专业模板（品牌 / 风格 / 场景），也可自建</p>
+          <p className="mt-0.5 text-sm text-neutral-500">内置专业模板（场景 / 品牌 / 风格），也可自建</p>
         </div>
         <button
           className="flex items-center gap-1.5 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700"
@@ -212,7 +216,7 @@ export default function TemplatesPage() {
                   <span className="text-xs text-neutral-400">{KIND_DESC[g.kind]} · {g.items.length} 个</span>
                 </div>
                 <div className="grid grid-cols-1 gap-3">
-                  {g.items.map((t) => <BuiltinCard key={t.id} t={t} onPreview={(url, title) => setPreview({ url, title })} />)}
+                  {g.items.map((t) => <BuiltinCard key={t.id} t={t} onPreview={openPreview} />)}
                 </div>
               </div>
             ))}
@@ -267,15 +271,23 @@ export default function TemplatesPage() {
         )
       )}
 
-      {/* 参考图预览 */}
+      {/* 参考图预览（左右翻页） */}
       {preview && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-6 backdrop-blur-sm" onClick={() => setPreview(null)}>
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-6 backdrop-blur-sm" onClick={() => setPreview(null)}
+          onKeyDown={undefined}>
           <div className="mb-3 flex items-center justify-between text-white/80">
-            <span className="text-sm">{preview.title}</span>
+            <span className="text-sm">{preview.list[preview.index].title}（{preview.index + 1}/{preview.list.length}）</span>
             <button className="rounded-lg p-1.5 hover:bg-white/10" onClick={() => setPreview(null)}><X className="h-5 w-5" /></button>
           </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center" onClick={(e) => e.stopPropagation()}>
-            <img src={preview.url} alt={preview.title} className="max-h-full max-w-full rounded-xl bg-white p-2 shadow-2xl" />
+          <div className="flex min-h-0 flex-1 items-center justify-center gap-6" onClick={(e) => e.stopPropagation()}>
+            <button className="rounded-full bg-white/10 p-3 text-2xl text-white/70 hover:bg-white/20" onClick={() => stepPreview(-1)}>‹</button>
+            <img src={preview.list[preview.index].url} alt={preview.list[preview.index].title} className="max-h-full max-w-full rounded-xl bg-white p-2 shadow-2xl" />
+            <button className="rounded-full bg-white/10 p-3 text-2xl text-white/70 hover:bg-white/20" onClick={() => stepPreview(1)}>›</button>
+          </div>
+          <div className="mt-3 flex justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            {preview.list.map((_, i) => (
+              <button key={i} className={`h-1.5 rounded-full transition-all ${i === preview.index ? 'w-6 bg-white' : 'w-1.5 bg-white/30'}`} onClick={() => setPreview({ ...preview, index: i })} />
+            ))}
           </div>
         </div>
       )}

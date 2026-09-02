@@ -158,7 +158,7 @@ export const api = {
   testSettings: () => req<{ ok: boolean; models: string[]; chatModel: string; imageModel: string }>('/api/settings/test', { method: 'POST' }),
   getModels: () => req<{ models: string[]; chatModel: string; imageModel: string }>('/api/models'),
 
-  createTask: (input: { mode: string; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean }) =>
+  createTask: (input: Record<string, any>) =>
     req<{ id: string }>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
   uploadAssets: async (files: File[]): Promise<UploadItem[]> => {
     const fd = new FormData();

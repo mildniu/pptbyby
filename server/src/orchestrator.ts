@@ -16,10 +16,10 @@ export type TaskMode = 'generate' | 'quick' | 'beautify' | 'edit_native' | 'crea
 export const TASK_MODES: { id: TaskMode; name: string; desc: string; ready: boolean }[] = [
   { id: 'generate', name: '生成 PPT', desc: '主题/文档 → 大纲确认 → 逐页生成可编辑 PPTX', ready: true },
   { id: 'quick', name: '快速生成', desc: '跳过大纲确认，一步直出 PPTX', ready: true },
-  { id: 'beautify', name: '美化 PPT', desc: '上传 PPTX，保持页数/顺序/措辞重排视觉', ready: false },
-  { id: 'edit_native', name: '编辑 PPT', desc: '上传 PPTX，保留原设计只改内容', ready: false },
-  { id: 'create_template', name: '创建模板', desc: '从参考稿蒸馏品牌/风格/版式模板', ready: false },
-  { id: 'image_to_pptx', name: '图片转 PPT', desc: '页面截图重建为可编辑 PPT', ready: false },
+  { id: 'beautify', name: '美化 PPT', desc: '上传 PPTX，保持页数/顺序/措辞重排视觉', ready: true },
+  { id: 'edit_native', name: '编辑 PPT', desc: '上传 PPTX，保留原设计只改内容', ready: true },
+  { id: 'create_template', name: '创建模板', desc: '从参考稿蒸馏品牌/风格/版式模板', ready: true },
+  { id: 'image_to_pptx', name: '图片转 PPT', desc: '页面截图重建为可编辑 PPT', ready: true },
 ];
 
 export interface PageSpec {
@@ -97,7 +97,7 @@ const STEP_DEFS: { key: StepKey; label: string }[] = [
   { key: 'export', label: '导出 PPTX' },
 ];
 
-function initialSteps(pages?: number): StepProgress[] {
+export function initialSteps(pages?: number): StepProgress[] {
   return STEP_DEFS.map((s) => ({ key: s.key, label: s.label, status: 'pending' as const }));
 }
 
@@ -118,7 +118,7 @@ function loadRef(...parts: string[]): string {
 // 任务行访问与进度更新
 // ---------------------------------------------------------------------------
 
-interface TaskRow {
+export interface TaskRow {
   id: string;
   user_id: string;
   mode: string;
@@ -144,23 +144,23 @@ export interface OrchestratorDeps {
 
 const running = new Set<string>();
 
-function getTask(deps: OrchestratorDeps, id: string): TaskRow | undefined {
+export function getTask(deps: OrchestratorDeps, id: string): TaskRow | undefined {
   return deps.db.prepare('SELECT * FROM tasks WHERE id=?').get(id) as TaskRow | undefined;
 }
 
-function updateTask(deps: OrchestratorDeps, id: string, patch: Partial<TaskRow>): void {
+export function updateTask(deps: OrchestratorDeps, id: string, patch: Partial<TaskRow>): void {
   const keys = Object.keys(patch);
   if (!keys.length) return;
   const setSql = keys.map((k) => `${k}=?`).join(', ');
   deps.db.prepare(`UPDATE tasks SET ${setSql} WHERE id=?`).run(...keys.map((k) => (patch as any)[k]), id);
 }
 
-function setProgress(deps: OrchestratorDeps, id: string, progress: TaskProgress): void {
+export function setProgress(deps: OrchestratorDeps, id: string, progress: TaskProgress): void {
   updateTask(deps, id, { progress_json: JSON.stringify(progress) });
 }
 
 /** 在现有进度上更新某个步骤状态 */
-function setStep(deps: OrchestratorDeps, id: string, key: StepKey, status: StepProgress['status'], message?: string): void {
+export function setStep(deps: OrchestratorDeps, id: string, key: StepKey, status: StepProgress['status'], message?: string): void {
   const p = currentProgress(deps, id);
   if (!p.steps) p.steps = initialSteps();
   const s = p.steps.find((x) => x.key === key);
@@ -178,7 +178,7 @@ function setStep(deps: OrchestratorDeps, id: string, key: StepKey, status: StepP
 // 积分：预扣 / 结算 / 退回
 // ---------------------------------------------------------------------------
 
-function holdCredits(deps: OrchestratorDeps, userId: string, taskId: string, amount: number): void {
+export function holdCredits(deps: OrchestratorDeps, userId: string, taskId: string, amount: number): void {
   if (amount <= 0) return;
   const ok = deps.db
     .prepare('UPDATE users SET credits = credits - ? WHERE id=? AND credits >= ?')
@@ -190,7 +190,7 @@ function holdCredits(deps: OrchestratorDeps, userId: string, taskId: string, amo
   updateTask(deps, taskId, { credits_held: (getTask(deps, taskId)?.credits_held ?? 0) + amount });
 }
 
-function refundCredits(deps: OrchestratorDeps, userId: string, taskId: string, amount: number, reason: string): void {
+export function refundCredits(deps: OrchestratorDeps, userId: string, taskId: string, amount: number, reason: string): void {
   if (amount <= 0) return;
   deps.db.prepare('UPDATE users SET credits = credits + ? WHERE id=?').run(amount, userId);
   deps.db.prepare('INSERT INTO credit_logs(user_id, delta, reason, task_id, created_at) VALUES (?,?,?,?,?)').run(
@@ -203,7 +203,7 @@ function refundCredits(deps: OrchestratorDeps, userId: string, taskId: string, a
   });
 }
 
-function settleCredits(deps: OrchestratorDeps, userId: string, taskId: string, actual: number): void {
+export function settleCredits(deps: OrchestratorDeps, userId: string, taskId: string, actual: number): void {
   const t = getTask(deps, taskId);
   if (!t) return;
   const held = t.credits_held;
@@ -244,7 +244,7 @@ export function extractJson<T>(text: string): T {
 }
 
 /** 从 LLM 回复中抽取 SVG（容忍围栏） */
-function extractSvg(text: string): string {
+export function extractSvg(text: string): string {
   const fenced = text.match(/```(?:svg|xml)?\s*([\s\S]*?)```/);
   const raw = fenced?.[1] ?? text;
   const start = raw.indexOf('<svg');
@@ -417,7 +417,7 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
 // ---------------------------------------------------------------------------
 
 const EXECUTOR_SYSTEM_CACHE = { content: '' };
-function executorSystemPrompt(): string {
+export function executorSystemPrompt(): string {
   if (!EXECUTOR_SYSTEM_CACHE.content) {
     EXECUTOR_SYSTEM_CACHE.content = [
       '你是一位顶级信息设计执行者（Executor）。你按照项目规范逐页手写 SVG。以下是必须严格遵守的技术规范文档：',
@@ -541,7 +541,7 @@ async function prepareAssets(
   updateTask(deps, taskId, { spec_json: JSON.stringify(spec) });
 }
 
-function currentProgress(deps: OrchestratorDeps, taskId: string): TaskProgress {
+export function currentProgress(deps: OrchestratorDeps, taskId: string): TaskProgress {
   const t = getTask(deps, taskId);
   try {
     const p = JSON.parse(t?.progress_json || '{}');
@@ -715,7 +715,7 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
   }
 }
 
-function summarizeCheckErrors(check: { ok: boolean; report: any; raw: string }): string {
+export function summarizeCheckErrors(check: { ok: boolean; report: any; raw: string }): string {
   const out: string[] = [];
   // 结构化报告：files[].errors[]
   if (Array.isArray(check.report?.files)) {
@@ -797,7 +797,7 @@ function countCheckErrors(check: { ok: boolean; report: any; raw: string }): num
 export function createTask(
   deps: OrchestratorDeps,
   userId: string,
-  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean },
+  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean; instruction?: string; name?: string; description?: string; fileId?: string; fileIds?: string[] },
 ): string {
   const id = randomUUID();
   const pages = Number(input.pages) > 0 ? Number(input.pages) : 0; // 0 = AI 决定
@@ -814,6 +814,8 @@ export function createTask(
         audience: input.audience ?? '', language: input.language ?? '',
         templateId: input.templateId ?? null, assetIds: input.assetIds ?? [],
         research: input.research ?? false,
+        instruction: input.instruction ?? '', name: input.name ?? '', description: input.description ?? '',
+        fileId: input.fileId ?? null, fileIds: input.fileIds ?? [],
       }),
       JSON.stringify({ phase: 'planning', currentPage: 0, totalPages: pages, steps: initialSteps(), pages: [], message: '正在规划大纲…' }),
       Date.now()
