@@ -237,7 +237,10 @@ export async function buildApp(opts: AppOptions) {
 
   app.get('/api/tasks/:id', async (req, reply) => {
     const auth = requireAuth(req, reply); if (!auth) return;
-    const t = db.prepare('SELECT * FROM tasks WHERE id=? AND user_id=?').get((req.params as any).id, auth.uid) as any;
+    // admin 可查看任意任务；普通用户只能看自己的
+    const t = auth.role === 'admin'
+      ? db.prepare('SELECT * FROM tasks WHERE id=?').get((req.params as any).id) as any
+      : db.prepare('SELECT * FROM tasks WHERE id=? AND user_id=?').get((req.params as any).id, auth.uid) as any;
     if (!t) return reply.code(404).send({ error: '任务不存在' });
     let spec = null;
     let progress = null;

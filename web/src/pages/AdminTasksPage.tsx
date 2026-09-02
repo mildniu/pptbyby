@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Eye } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 
 const STATUS: Record<string, string> = {
@@ -30,17 +31,23 @@ export default function AdminTasksPage() {
             <th className="px-4 py-3">状态</th>
             <th className="px-4 py-3">积分</th>
             <th className="px-4 py-3">时间</th>
+            <th className="px-4 py-3">操作</th>
           </tr>
         </thead>
         <tbody>
           {tasks.map((t) => (
-            <tr key={t.id} className="border-t border-neutral-100">
+            <tr key={t.id} className="border-t border-neutral-100 hover:bg-neutral-50">
               <td className="px-4 py-3">{t.username ?? t.user_id}</td>
               <td className="px-4 py-3 text-neutral-500">{t.mode}</td>
               <td className="max-w-xs truncate px-4 py-3">{t.topic || '-'}</td>
               <td className="px-4 py-3">{STATUS[t.status] ?? t.status}</td>
               <td className="px-4 py-3">{t.credits_cost}</td>
               <td className="px-4 py-3 text-xs text-neutral-400">{new Date(t.created_at).toLocaleString()}</td>
+              <td className="px-4 py-3">
+                <Link to={`/task/${t.id}`} className="flex items-center gap-1 rounded-lg border border-neutral-200 px-2.5 py-1 text-xs text-neutral-600 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700">
+                  <Eye className="h-3.5 w-3.5" />查看
+                </Link>
+              </td>
             </tr>
           ))}
         </tbody>

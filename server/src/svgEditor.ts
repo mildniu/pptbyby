@@ -105,9 +105,9 @@ export async function proxyEditor(
   headers: Record<string, string>,
   body: Buffer | undefined,
 ): Promise<{ status: number; headers: Record<string, string>; body: Buffer }> {
-  const s = sessions.get(taskId);
-  if (!s) throw new Error('编辑器未启动');
-  const url = `http://127.0.0.1:${s.port}/${subPath}`;
+  const sess = sessions.get(taskId);
+  if (!sess) throw new Error('编辑器未启动');
+  const url = `http://127.0.0.1:${sess.port}/${subPath}`;
   const h: Record<string, string> = {};
   if (headers['content-type']) h['content-type'] = headers['content-type'];
   if (headers['accept']) h['accept'] = headers['accept'];
@@ -118,7 +118,33 @@ export async function proxyEditor(
     headersTimeout: 30000,
     bodyTimeout: 120000,
   });
-  const buf = Buffer.from(await res.body.arrayBuffer());
+  let buf = Buffer.from(await res.body.arrayBuffer());
+
+  // index.html：注入 fetch 重写脚本（前端 fetch("/api/...") 是绝对路径，代理后需加前缀）
+  const isHtml = (outHeadersOf(res)['content-type'] ?? '').includes('text/html');
+  if (isHtml && subPath === '') {
+    const inject = `<script>(function(){
+      var PREFIX = '/editor/${taskId}';
+      var origFetch = window.fetch.bind(window);
+      window.fetch = function(input, init) {
+        try {
+          var url = typeof input === 'string' ? input : (input && input.url) || '';
+          if (url.indexOf('/api/') === 0) {
+            url = PREFIX + url;
+            return typeof input === 'string' ? origFetch(url, init) : origFetch(new Request(url, input), init);
+          }
+        } catch (e) {}
+        return origFetch(input, init);
+      };
+    })();</script>`;
+    // 静态资源引用是绝对路径 /static/...，重写为代理前缀
+    const html = buf
+      .toString('utf8')
+      .replace('<head>', '<head>' + inject)
+      .replace(/(src|href)=["']\/static\//g, `$1="/editor/${taskId}/static/`);
+    buf = Buffer.from(html, 'utf8');
+  }
+
   const outHeaders: Record<string, string> = {};
   for (const [k, v] of Object.entries(res.headers)) {
     if (typeof v === 'string' && !['transfer-encoding', 'connection', 'content-length', 'keep-alive'].includes(k)) {
@@ -126,4 +152,12 @@ export async function proxyEditor(
     }
   }
   return { status: res.statusCode, headers: outHeaders, body: buf };
+}
+
+function outHeadersOf(res: any): Record<string, string> {
+  const h: Record<string, string> = {};
+  for (const [k, v] of Object.entries(res.headers)) {
+    if (typeof v === 'string') h[k] = v;
+  }
+  return h;
 }
