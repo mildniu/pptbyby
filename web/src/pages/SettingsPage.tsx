@@ -65,7 +65,7 @@ export default function SettingsPage() {
     );
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-8">
+    <div className="mx-auto max-w-2xl px-3 py-5 sm:px-6 sm:py-8">
       <h1 className="mb-1 text-2xl font-bold">网关设置</h1>
       <p className="mb-6 text-sm text-neutral-500">
         配置 OpenAI 兼容网关。{settings.isCustom ? '当前使用你的专属接口。' : '未配置时继承平台共享接口。'}
@@ -82,7 +82,7 @@ export default function SettingsPage() {
           <input className="w-full rounded-lg border border-neutral-200 px-3 py-2.5 text-sm outline-none focus:border-orange-400"
             placeholder={settings.hasApiKey ? `已保存（${settings.apiKeyMasked}），留空则不修改` : 'sk-…'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} type="password" />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-sm font-medium">Chat 模型 <span className="font-normal text-neutral-400">（驱动大纲与逐页生成）</span></label>
             <ModelSelect value={chatModel} onChange={setChatModel} label="chat" placeholder="例如 claude-opus-4 / glm-4.7 / kimi-k3…" />

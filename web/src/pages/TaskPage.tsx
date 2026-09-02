@@ -264,7 +264,7 @@ export default function TaskPage() {
                 <div className="mb-3 text-xs text-neutral-500">
                   {task.images.length} 张素材 · AI 配图每张 1 积分，用户上传素材不收费
                 </div>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {task.images.map((im) => {
                     const spec = activeSpec?.images.find((s) => s.file === im.file);
                     const st = spec?.status ?? 'done';
@@ -302,7 +302,7 @@ export default function TaskPage() {
         return (
           <div>
             {task.slides.length > 0 ? (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {task.slides.map((s, idx) => {
                   const p = prog?.pages?.find((x) => x.id === `p${String(s.page).padStart(2, '0')}`);
                   return (
@@ -412,7 +412,7 @@ export default function TaskPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <div className="mx-auto max-w-5xl px-3 py-5 sm:px-6 sm:py-8">
       {/* 头部 */}
       <div className="mb-5 flex items-start justify-between">
         <div>
@@ -437,7 +437,7 @@ export default function TaskPage() {
             </a>
           )}
           {active && task.status !== 'planning' && (
-            <button onClick={() => api.cancelTask(task.id).then(load)} className="rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-600 hover:bg-neutral-50">取消任务</button>
+            <button onClick={() => api.cancelTask(task.id).then(load)} className="hidden rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-600 hover:bg-neutral-50 sm:block">取消任务</button>
           )}
           {!active && (
             <button onClick={() => api.deleteTask(task.id).then(() => history.back())} className="rounded-lg border border-neutral-200 p-2 text-neutral-400 hover:bg-red-50 hover:text-red-500" title="删除任务">
@@ -449,9 +449,9 @@ export default function TaskPage() {
 
       {/* 大纲确认操作条 */}
       {task.status === 'awaiting_confirm' && activeSpec && (
-        <div className="mb-4 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-3">
+        <div className="mb-4 flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="text-sm text-amber-700">大纲已就绪，确认后开始生成（可在「规划大纲」步骤中编辑）</div>
-          <div className="flex gap-2">
+          <div className="flex shrink-0 gap-2">
             <button onClick={() => setEditing(!editing)} className="flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-100">
               <Pencil className="h-3.5 w-3.5" />{editing ? '放弃编辑' : '编辑大纲'}
             </button>
@@ -476,10 +476,10 @@ export default function TaskPage() {
         </div>
       ) : null}
 
-      {/* 步骤时间线 + 面板 */}
-      <div className="flex gap-5">
-        {/* 左：步骤列表（可点） */}
-        <div className="w-52 shrink-0 space-y-1.5">
+      {/* 步骤时间线 + 面板（桌面左右分栏；手机上下堆叠） */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:gap-5">
+        {/* 步骤列表：手机端横向滚动，桌面端纵向列表 */}
+        <div className="flex gap-1.5 overflow-x-auto pb-1 lg:w-52 lg:shrink-0 lg:flex-col lg:space-y-1.5 lg:overflow-visible lg:pb-0">
           {steps.map((s) => {
             const Icon = STEP_ICONS[s.key] ?? CircleDashed;
             const isActive = activeStep === s.key;
@@ -487,15 +487,16 @@ export default function TaskPage() {
               <button
                 key={s.key}
                 onClick={() => setActiveStep(s.key)}
-                className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                className={`flex shrink-0 items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors lg:w-full lg:py-2.5 ${
                   isActive ? 'border-orange-300 bg-orange-50' : 'border-neutral-200 bg-white hover:bg-neutral-50'
                 }`}
               >
                 <StepStatusIcon status={s.status} />
-                <div className="min-w-0 flex-1">
+                <div className="hidden min-w-0 flex-1 sm:block">
                   <div className={`text-sm ${isActive ? 'font-semibold text-orange-800' : 'text-neutral-700'}`}>{s.label}</div>
                   {s.message && <div className="truncate text-[11px] leading-tight text-neutral-400" title={s.message}>{s.message}</div>}
                 </div>
+                <div className={`text-sm sm:hidden ${isActive ? 'font-semibold text-orange-800' : 'text-neutral-700'}`}>{s.label}</div>
                 {s.status === 'running' && fmtDur(s) ? <span className="text-[10px] tabular-nums text-orange-400">{fmtDur(s)}</span> : null}
                 {s.status === 'done' && s.endedAt && s.startedAt ? <span className="text-[10px] tabular-nums text-neutral-400">{fmtDur(s)}</span> : null}
                 <Icon className="hidden" />

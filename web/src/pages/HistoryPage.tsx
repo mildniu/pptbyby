@@ -21,7 +21,7 @@ export default function HistoryPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-4xl px-3 py-5 sm:px-6 sm:py-8">
       <h1 className="mb-6 text-2xl font-bold">我的任务</h1>
       {!tasks ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-neutral-300" /></div>

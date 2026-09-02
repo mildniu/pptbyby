@@ -11,9 +11,9 @@ export default function AdminUsersPage() {
   if (!users) return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-neutral-300" /></div>;
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8">
+    <div className="mx-auto max-w-4xl px-3 py-5 sm:px-6 sm:py-8">
       <h1 className="mb-6 text-2xl font-bold">用户管理</h1>
-      <table className="w-full overflow-hidden rounded-xl border border-neutral-200 bg-white text-sm">
+      <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white"><table className="w-full text-sm">
         <thead className="bg-neutral-50 text-left text-xs text-neutral-500">
           <tr>
             <th className="px-4 py-3">用户名</th>
@@ -56,7 +56,7 @@ export default function AdminUsersPage() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   );
 }

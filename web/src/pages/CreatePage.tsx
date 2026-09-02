@@ -217,7 +217,7 @@ export default function CreatePage() {
 
         {/* 底部控制栏 */}
         <div className="mt-2.5 flex flex-col items-stretch justify-between gap-2.5 sm:flex-row sm:items-center">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-2 sm:flex-nowrap">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-2 sm:flex-nowrap max-sm:overflow-x-auto max-sm:pb-1">
             {/* 上传按钮（语义随模式） */}
             <input ref={fileRef} type="file"
               accept={mode === 'beautify' || mode === 'edit_native' ? '.pptx' : mode === 'create_template' ? '.pptx,image/*' : 'image/*'}
