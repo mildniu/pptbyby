@@ -243,36 +243,48 @@ export default function TemplatesPage() {
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             {templates.map((t) => (
-              <div key={t.id} className="rounded-2xl border border-neutral-200 bg-white p-5">
-                <div className="mb-2 flex items-start justify-between">
-                  <div>
-                    <div className="font-semibold">{t.name}</div>
-                    <div className="mt-0.5 text-xs text-neutral-400">{t.description || t.style?.mode || '—'}</div>
+              <div key={t.id} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+                {/* 预览图（点击放大） */}
+                {t.coverSvgUrl && (
+                  <div className="group relative aspect-video cursor-zoom-in overflow-hidden border-b border-neutral-100 bg-neutral-50"
+                    onClick={() => setPreview({ list: [{ url: t.coverSvgUrl!, title: t.name }], index: 0 })}>
+                    <img src={t.coverSvgUrl} alt={t.name} className="absolute inset-0 h-full w-full object-cover" />
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/20 group-hover:opacity-100">
+                      <Maximize2 className="h-6 w-6 text-white" />
+                    </div>
                   </div>
-                  <div className="flex gap-1">
-                    <button className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600" title="编辑"
-                      onClick={() => { setEditing({ id: t.id, form: formFromTpl(t) }); setError(''); }}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button className="rounded-md p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-500" title="删除"
-                      onClick={async () => { if (confirm(`删除模板「${t.name}」？`)) { await api.deleteTemplate(t.id); load(); } }}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                )}
+                <div className="p-5">
+                  <div className="mb-2 flex items-start justify-between">
+                    <div>
+                      <div className="font-semibold">{t.name}</div>
+                      <div className="mt-0.5 text-xs text-neutral-400">{t.description || t.style?.mode || '—'}</div>
+                    </div>
+                    <div className="flex gap-1">
+                      <button className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600" title="编辑"
+                        onClick={() => { setEditing({ id: t.id, form: formFromTpl(t) }); setError(''); }}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button className="rounded-md p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-500" title="删除"
+                        onClick={async () => { if (confirm(`删除模板「${t.name}」？`)) { await api.deleteTemplate(t.id); load(); } }}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
+                  <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                    {(t.style?.palette ?? []).length ? (
+                      t.style.palette.map((c) => (
+                        <span key={c} className="flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-500">
+                          <span className="h-3 w-3 rounded-full border border-neutral-300" style={{ background: c }} />{c}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-neutral-300">未设置调色板</span>
+                    )}
+                  </div>
+                  {t.style?.typography && <div className="text-xs leading-relaxed text-neutral-500">{t.style.typography}</div>}
+                  {t.style?.notes && <div className="mt-1 text-xs leading-relaxed text-neutral-400">{t.style.notes}</div>}
                 </div>
-                <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                  {(t.style?.palette ?? []).length ? (
-                    t.style.palette.map((c) => (
-                      <span key={c} className="flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-500">
-                        <span className="h-3 w-3 rounded-full border border-neutral-300" style={{ background: c }} />{c}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-neutral-300">未设置调色板</span>
-                  )}
-                </div>
-                {t.style?.typography && <div className="text-xs leading-relaxed text-neutral-500">{t.style.typography}</div>}
-                {t.style?.notes && <div className="mt-1 text-xs leading-relaxed text-neutral-400">{t.style.notes}</div>}
               </div>
             ))}
           </div>
