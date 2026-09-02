@@ -76,6 +76,7 @@ export function openDb(dataDir: string): { db: Db; mediaDir: string } {
       style_json TEXT NOT NULL DEFAULT '{}', -- {mode, palette[], typography, notes}
       kind TEXT NOT NULL DEFAULT 'style',    -- 'style' 风格模板 | 'deck' 场景方案（多页原型）
       pages_json TEXT,                       -- 场景方案的页面原型 SVG 列表（JSON 数组，可选）
+      assets_json TEXT,                      -- 原型引用的图片素材 {文件名: mime}（文件存 template-assets/<id>/）
       cover_svg TEXT,           -- 封面页示例 SVG（可选）
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
@@ -91,6 +92,9 @@ export function openDb(dataDir: string): { db: Db; mediaDir: string } {
     }
     if (tplInfo.length && !tplInfo.some((c) => c.name === 'pages_json')) {
       db.exec('ALTER TABLE templates ADD COLUMN pages_json TEXT');
+    }
+    if (tplInfo.length && !tplInfo.some((c) => c.name === 'assets_json')) {
+      db.exec('ALTER TABLE templates ADD COLUMN assets_json TEXT');
     }
   } catch {}
 

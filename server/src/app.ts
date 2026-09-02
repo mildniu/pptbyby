@@ -455,9 +455,28 @@ export async function buildApp(opts: AppOptions) {
     if (!pages.length && t.cover_svg) pages = [t.cover_svg];
     const n = Number((req.params as any).n);
     if (!Number.isInteger(n) || n < 0 || n >= pages.length) return reply.code(404).send({ error: '页面不存在' });
+    // 原型里的 ../images/xxx 重写为素材端点（浏览器可加载）
+    const tid = (req.params as any).id;
+    const page = pages[n].split('../images/').join(`/api/templates/${tid}/asset/`);
     reply.header('Content-Type', 'image/svg+xml');
     reply.header('Cache-Control', 'private, max-age=3600');
-    return reply.send(pages[n]);
+    return reply.send(page);
+  });
+
+  // 模板图片素材（deck 原型引用的 logo/装饰图）
+  app.get('/api/templates/:id/asset/:file', async (req, reply) => {
+    const auth = requireAuth(req, reply); if (!auth) return;
+    const id = (req.params as any).id;
+    const file = String((req.params as any).file);
+    // 防路径穿越
+    if (!/^[\w\-.( ]+\.(png|jpe?g|webp|gif)$/i.test(file)) return reply.code(400).send({ error: 'bad file' });
+    const fpath = join(opts.dataDir, 'template-assets', id, file);
+    if (!existsSync(fpath)) return reply.code(404).send({ error: '素材不存在' });
+    const t = db.prepare('SELECT assets_json FROM templates WHERE id=?').get(id) as any;
+    const mime = t?.assets_json ? (JSON.parse(t.assets_json)[file] ?? 'image/png') : 'image/png';
+    reply.header('Content-Type', mime);
+    reply.header('Cache-Control', 'private, max-age=86400');
+    return reply.send(createReadStream(fpath));
   });
 
   app.get('/api/templates', async (req, reply) => {

@@ -325,6 +325,7 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
         let constraint = `\n模板风格约束（必须严格遵循）：${tpl.name} — ${JSON.stringify(style)}`;
         // 场景方案（deck）：原型 SVG 的版式结构也注入 Executor 参考（内容已脱敏）
         if ((tpl.kind ?? 'style') === 'deck' && tpl.pages_json) {
+  
           try {
             const pages: string[] = JSON.parse(tpl.pages_json);
             // 只给 Executor 传页面结构摘要（版式骨架：每个 g 的 bounds 与角色），避免上下文爆炸
@@ -613,6 +614,28 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
     const projectsRoot = join(deps.dataDir, 'projects');
     mkdirSync(projectsRoot, { recursive: true });
     projectPath = await initProject(taskId.replace(/-/g, '_'), spec.format, deps.dataDir);
+
+    // deck 模板素材（logo/装饰图）复制进项目 images/，Executor 可直接引用
+    let tplAssetNames: string[] = [];
+    if (params.templateId && !String(params.templateId).startsWith('builtin:')) {
+      const tpl = deps.db.prepare('SELECT kind, assets_json FROM templates WHERE id=?').get(params.templateId) as any;
+      if (tpl?.kind === 'deck' && tpl.assets_json) {
+        tplAssetNames = Object.keys(JSON.parse(tpl.assets_json));
+        const srcDir = join(deps.dataDir, 'template-assets', String(params.templateId));
+        const dstDir = join(projectPath, 'images');
+        mkdirSync(dstDir, { recursive: true });
+        for (const fname of tplAssetNames) {
+          const sf = join(srcDir, fname);
+          if (existsSync(sf)) {
+            copyFileSync(sf, join(dstDir, `tpl_${fname}`));
+            spec.images.push({
+              id: `tpl_${fname}`, desc: '模板素材（logo/装饰）', usage: '模板品牌元素，按原位置使用',
+              origin: 'user', file: `tpl_${fname}`, status: 'ready',
+            });
+          }
+        }
+      }
+    }
     const projectDir = basename(projectPath);
     log('ORCH', `任务 ${taskId} 项目目录: ${projectPath}`);
     setProgress(deps, taskId, { ...currentProgress(deps, taskId), projectDir });

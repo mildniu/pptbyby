@@ -489,6 +489,7 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
     let refContent = '';
     let coverSvg: string | null = null;
     let protoPages: string[] = [];
+    let protoAssets: Record<string, string> = {};  // 文件名 → mime（图片素材清单）
     if (ref && (ref.path.endsWith('.pptx') || ref.mime.includes('presentationml'))) {
       const tmpDir = join(deps.dataDir, 'tmp');
       mkdirSync(tmpDir, { recursive: true });
@@ -552,6 +553,22 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
             return tplKind === 'deck' ? sanitizeProto(raw, fi, take.length) : raw;
           });
           if (protoPages.length) coverSvg = protoPages[0];
+          // 收集原型引用的图片（logo/装饰条等）到素材清单
+          if (tplKind === 'deck') {
+            const wsImagesDir = join(tmpWs, 'images');
+            for (const svg of protoPages) {
+              const refs = [...svg.matchAll(/href="([^"]+)"/g)].map((m) => m[1]).filter((u) => u.startsWith('../images/'));
+              for (const u of refs) {
+                const fname = u.slice('../images/'.length);
+                if (protoAssets[fname]) continue;
+                const fpath = join(wsImagesDir, fname);
+                if (existsSync(fpath)) {
+                  const ext = fname.split('.').pop()?.toLowerCase() ?? 'png';
+                  protoAssets[fname] = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/webp';
+                }
+              }
+            }
+          }
         }
       }
     } else if (ref && ref.mime.startsWith('image/')) {
@@ -592,9 +609,20 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
       typography: String(distilled.style?.typography ?? ''),
       notes: String(distilled.style?.notes ?? ''),
     });
-    deps.db.prepare('INSERT INTO templates(id, name, description, style_json, kind, pages_json, cover_svg, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
+    // deck：把原型图片素材（logo/装饰）复制到持久目录
+    if (tplKind === 'deck' && Object.keys(protoAssets).length) {
+      const tplAssetsDir = join(deps.dataDir, 'template-assets', id);
+      mkdirSync(tplAssetsDir, { recursive: true });
+      const tmpWs = join(deps.dataDir, 'tmp', `${taskId.replace(/-/g, '_')}_tpl`);
+      for (const fname of Object.keys(protoAssets)) {
+        const srcF = join(tmpWs, 'images', fname);
+        if (existsSync(srcF)) copyFileSync(srcF, join(tplAssetsDir, fname));
+      }
+    }
+    deps.db.prepare('INSERT INTO templates(id, name, description, style_json, kind, pages_json, assets_json, cover_svg, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
       id, params.name, String(distilled.description ?? params.description ?? '').slice(0, 500), styleJson,
       tplKind, tplKind === 'deck' && protoPages.length > 1 ? JSON.stringify(protoPages) : null,
+      tplKind === 'deck' && Object.keys(protoAssets).length ? JSON.stringify(protoAssets) : null,
       coverSvg, userId, Date.now(), Date.now()
     );
     setStep(deps, taskId, 'pages', 'done', tplKind === 'deck' ? `已生成 ${protoPages.length} 页脱敏原型` : '风格模板已保存');
