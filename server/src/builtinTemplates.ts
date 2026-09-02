@@ -2,6 +2,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { SKILL_DIR } from './pipeline.js';
 import { log } from './logger.js';
+import { stylePreviewSvg } from './templatePreview.js';
 
 /**
  * 内置模板：读取 vendor 的 ppt-master 模板库。
@@ -22,6 +23,8 @@ export interface BuiltinTemplate {
   style: { mode: string; palette: string[]; typography: string; notes: string };
   /** 参考图（deck 的页面原型 SVG 与品牌素材）媒体路径 */
   refImages: { name: string; url: string }[];
+  /** 主预览图（有 refImages 用第一张；否则程序化生成风格示意） */
+  previewUrl: string;
 }
 
 let cache: BuiltinTemplate[] | null = null;
@@ -90,6 +93,11 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
         notes: meta.summary ?? '',
       },
       refImages: imgs.map((r) => ({ name: r.name, url: mediaUrl(r.rel) })),
+      previewUrl: imgs.length ? mediaUrl(imgs[0].rel) : previewDataUrl({
+        mode: `brand:${id}`,
+        palette: ['#FFFFFF', meta.primary_color ?? '#C0392B', '#333333', '#F5F5F5'],
+        typography: `${id} 品牌规范`, notes: '',
+      }, id),
     });
   }
 
@@ -108,6 +116,12 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
         notes: meta.summary ?? '',
       },
       refImages: [],
+      previewUrl: previewDataUrl({
+        mode: `style:${id}`,
+        palette: ['#FAFAFA', '#2563EB', '#111827', '#E5E7EB'],
+        typography: meta.summary ?? '',
+        notes: '',
+      }, id),
     });
   }
 
@@ -134,6 +148,7 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
         notes: meta.summary ?? '',
       },
       refImages: [...protos, ...assets].map((r) => ({ name: r.name, url: media(r.rel) })),
+      previewUrl: protos.length ? media(protos[0].rel) : (assets.length ? media(assets[0].rel) : previewDataUrl({ mode: `deck:${id}`, palette: meta.primary_color ? [meta.primary_color] : [], typography: '', notes: '' }, id)),
     });
   }
 
@@ -152,6 +167,11 @@ export function builtinSpecText(templateId: string): string | null {
   const specPath = join(SKILL_DIR, 'templates', sub, m[2], 'templates', 'design_spec.md');
   if (!existsSync(specPath)) return null;
   return readFileSync(specPath, 'utf8').slice(0, 30000);
+}
+
+/** 风格示意 SVG 转 data URL（无参考图的模板用） */
+function previewDataUrl(style: { mode?: string; palette?: string[]; typography?: string; notes?: string }, name: string): string {
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(stylePreviewSvg(style, name));
 }
 
 /** 媒体 URL（中文目录名 percent-encode，浏览器可直接访问） */

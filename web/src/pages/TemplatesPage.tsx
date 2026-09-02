@@ -59,9 +59,18 @@ function BuiltinCard({ t, onPreview }: { t: BuiltinTemplate; onPreview: (list: {
           </span>
         )}
       </div>
-      {t.refImages.length > 0 && (
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-          {t.refImages.map((img, idx) => (
+      <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+        {/* 无参考图时展示程序化风格示意 */}
+        {!t.refImages.length && t.previewUrl && (
+          <div className="group relative h-20 w-32 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50"
+            onClick={() => onPreview([{ url: t.previewUrl, title: t.name }], 0)}>
+            <img src={t.previewUrl} alt={t.name} className="h-full w-full object-cover" />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/20 group-hover:opacity-100">
+              <Maximize2 className="h-4 w-4 text-white" />
+            </div>
+          </div>
+        )}
+        {t.refImages.map((img, idx) => (
             <div key={img.url} className="group relative h-20 w-32 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50"
               onClick={() => onPreview(t.refImages.map((im) => ({ url: im.url, title: `${t.name} · ${im.name}` })), idx)}>
               {img.url.endsWith('.svg') ? (
@@ -74,8 +83,7 @@ function BuiltinCard({ t, onPreview }: { t: BuiltinTemplate; onPreview: (list: {
               </div>
             </div>
           ))}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

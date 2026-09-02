@@ -9,6 +9,7 @@ import type { Db } from './db.js';
 import { verifyPassword, signToken, verifyToken, maskKey } from './crypto.js';
 import { getUserGatewayConfig, saveUserGatewayConfig, clearUserGatewayConfig, listGatewayModels, testTavilyKey } from './gateway.js';
 import { loadBuiltinTemplates, builtinSpecText } from './builtinTemplates.js';
+import { stylePreviewSvg } from './templatePreview.js';
 import { createTask, confirmTask, cancelTask, TASK_MODES, type TaskMode } from './orchestrator.js';
 import { runBeautify, runEditNative, runCreateTemplate, runImageToPptx } from './routes.js';
 import { startEditor, stopEditor, editorStatus, proxyEditor } from './svgEditor.js';
@@ -450,12 +451,18 @@ export async function buildApp(opts: AppOptions) {
                 WHERE t.created_by=? OR t.created_by='admin' ORDER BY t.updated_at DESC`)
       .all(auth.uid) as any[];
     return {
-      templates: rows.map((r) => ({
-        ...r,
-        style: (() => { try { return JSON.parse(r.style_json); } catch { return {}; } })(),
-        style_json: undefined,
-        coverSvgUrl: r.cover_svg ? `/api/templates/${r.id}/cover` : null,
-      })),
+      templates: rows.map((r) => {
+        const style = (() => { try { return JSON.parse(r.style_json); } catch { return {}; } })();
+        return {
+          ...r,
+          style,
+          style_json: undefined,
+          // 有封面 SVG 用之；否则程序化生成风格示意
+          coverSvgUrl: r.cover_svg
+            ? `/api/templates/${r.id}/cover`
+            : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(stylePreviewSvg(style, r.name)),
+        };
+      }),
     };
   });
 

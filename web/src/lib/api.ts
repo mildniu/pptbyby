@@ -25,6 +25,7 @@ export interface BuiltinTemplate {
   pageCount?: number;
   style: { mode: string; palette: string[]; typography: string; notes: string };
   refImages: { name: string; url: string }[];
+  previewUrl: string;
 }
 
 export interface PageSpec {

@@ -355,10 +355,41 @@ export default function CreatePage() {
             <Link to="/templates" className="text-xs text-orange-600 hover:underline">全部模板 →</Link>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {/* 我的模板卡片（带预览） */}
+            {myTemplates.map((t) => {
+              const selected = templateId === t.id;
+              const cover = t.coverSvgUrl;
+              return (
+                <div key={t.id}
+                  className={`group overflow-hidden rounded-xl border bg-white transition-all ${
+                    selected ? 'border-orange-400 ring-2 ring-orange-200' : 'border-neutral-200 hover:border-neutral-300 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="relative aspect-video overflow-hidden bg-neutral-50">
+                    {cover ? (
+                      <img src={cover} alt={t.name} className="absolute inset-0 h-full w-full object-cover" />
+                    ) : (
+                      <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${(t.style?.palette ?? ['#f5f5f4'])[0]}18, #a8a29e33)` }} />
+                    )}
+                    <span className="absolute left-2 top-2 rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-700">我的</span>
+                  </div>
+                  <div className="p-2.5">
+                    <div className="mb-1 truncate text-sm font-medium">{t.name}</div>
+                    <div className="mb-2 line-clamp-1 text-[11px] text-neutral-400" title={t.description}>{t.description || t.style?.mode || ''}</div>
+                    <button
+                      onClick={() => setTemplateId(selected ? 'auto' : t.id)}
+                      className={`w-full rounded-lg py-1.5 text-xs font-medium transition-colors ${
+                        selected ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-900 hover:text-white'
+                      }`}
+                    >{selected ? '✓ 已选择该风格' : '选择该风格'}</button>
+                  </div>
+                </div>
+              );
+            })}
             {(['deck', 'brand', 'style'] as const).flatMap((k) => builtin.filter((b) => b.kind === k)).map((t) => {
               const selected = templateId === t.id;
               const tag = KIND_TAG[t.kind];
-              const cover = t.refImages[0];
+              const cover = t.previewUrl || t.refImages[0]?.url;
               return (
                 <div key={t.id}
                   className={`group overflow-hidden rounded-xl border bg-white transition-all ${
@@ -368,10 +399,10 @@ export default function CreatePage() {
                   {/* 预览区：deck 用页面原型；brand 有 logo 用 logo；否则色板示意 */}
                   <div className="relative aspect-video overflow-hidden bg-neutral-50">
                     {cover ? (
-                      cover.url.endsWith('.svg') ? (
-                        <InlineSvg url={cover.url} className="slide-frame absolute inset-0 [&>svg]:h-full [&>svg]:w-full" />
+                      cover.endsWith('.svg') ? (
+                        <InlineSvg url={cover} className="slide-frame absolute inset-0 [&>svg]:h-full [&>svg]:w-full" />
                       ) : (
-                        <img src={cover.url} alt={t.name} className="absolute inset-0 h-full w-full object-contain p-4" />
+                        <img src={cover} alt={t.name} className="absolute inset-0 h-full w-full object-cover" />
                       )
                     ) : (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4"
@@ -404,19 +435,6 @@ export default function CreatePage() {
               );
             })}
           </div>
-          {myTemplates.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-              <span>我的模板：</span>
-              {myTemplates.map((t) => (
-                <button key={t.id}
-                  onClick={() => setTemplateId(templateId === t.id ? 'auto' : t.id)}
-                  className={`rounded-full px-2.5 py-1 transition-colors ${
-                    templateId === t.id ? 'bg-neutral-900 font-medium text-white' : 'bg-neutral-100 hover:bg-neutral-200'
-                  }`}
-                >{t.name}</button>
-              ))}
-            </div>
-          )}
         </section>
       )}
     </div>
