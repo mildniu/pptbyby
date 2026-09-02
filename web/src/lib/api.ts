@@ -181,6 +181,8 @@ export const api = {
   confirmTask: (id: string, spec?: DesignSpec) =>
     req<{ ok: boolean }>(`/api/tasks/${id}/confirm`, { method: 'POST', body: JSON.stringify({ spec }) }),
   cancelTask: (id: string) => req<{ ok: boolean }>(`/api/tasks/${id}/cancel`, { method: 'POST' }),
+  reditTask: (id: string, instruction: string) =>
+    req<{ id: string }>(`/api/tasks/${id}/redit`, { method: 'POST', body: JSON.stringify({ instruction }) }),
   deleteTask: (id: string) => req<{ ok: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }),
 
   adminUsers: () => req<{ users: (User & { status: number; credits: number; created_at: number })[] }>('/api/admin/users'),

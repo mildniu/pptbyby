@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, Loader2, Download, Check, Pencil, Trash2, Coins, AlertTriangle,
-  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2,
+  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2, FileEdit,
 } from 'lucide-react';
 import { api, type TaskDetail, type StepProgress } from '../lib/api';
 
@@ -96,6 +96,7 @@ function StepStatusIcon({ status }: { status: StepProgress['status'] }) {
 
 export default function TaskPage() {
   const { id } = useParams<{ id: string }>();
+  const nav = useNavigate();
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -103,6 +104,9 @@ export default function TaskPage() {
   const [editPages, setEditPages] = useState('');
   const [activeStep, setActiveStep] = useState<string>('pages');
   const [lightbox, setLightbox] = useState<{ index: number } | null>(null);
+  const [reditOpen, setReditOpen] = useState(false);
+  const [reditText, setReditText] = useState('');
+  const [reditBusy, setReditBusy] = useState(false);
   const pollRef = useRef<number | null>(null);
 
   const load = async () => {
@@ -508,22 +512,63 @@ export default function TaskPage() {
       </div>
 
       {task.status === 'done' && (
-        <div className="mt-5 flex items-center justify-between rounded-xl bg-green-50 px-5 py-3.5">
-          <div className="text-sm text-green-700">
-            完成！共 {task.slides.length} 页，消耗 {task.creditsCost} 积分。{task.error ? `（${task.error}）` : ''}
-            <button
-              className="ml-2 text-xs text-green-600 underline hover:text-green-700"
-              onClick={async () => {
-                const name = activeSpec?.title || task.topic || '新模板';
-                await api.createTemplate({ name, style: activeSpec?.style, coverSvg: undefined });
-                alert('已保存为模板，可在「模板库」中管理');
-              }}
-            >存为模板</button>
+        <div className="mt-5 space-y-3">
+          <div className="flex items-center justify-between rounded-xl bg-green-50 px-5 py-3.5">
+            <div className="text-sm text-green-700">
+              完成！共 {task.slides.length} 页，消耗 {task.creditsCost} 积分。{task.error ? `（${task.error}）` : ''}
+              <button
+                className="ml-2 text-xs text-green-600 underline hover:text-green-700"
+                onClick={async () => {
+                  const name = activeSpec?.title || task.topic || '新模板';
+                  await api.createTemplate({ name, style: activeSpec?.style, coverSvg: undefined });
+                  alert('已保存为模板，可在「模板库」中管理');
+                }}
+              >存为模板</button>
+            </div>
+            {task.downloadUrl && (
+              <a href={task.downloadUrl} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">
+                <Download className="h-4 w-4" />下载 PPTX
+              </a>
+            )}
           </div>
+          {/* 连续编辑 */}
           {task.downloadUrl && (
-            <a href={task.downloadUrl} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">
-              <Download className="h-4 w-4" />下载 PPTX
-            </a>
+            <div className="rounded-xl border border-neutral-200 bg-white px-5 py-3.5">
+              {!reditOpen ? (
+                <button
+                  className="flex items-center gap-1.5 text-sm font-medium text-orange-600 hover:text-orange-700"
+                  onClick={() => { setReditOpen(true); setReditText(''); }}
+                >
+                  <FileEdit className="h-4 w-4" />继续编辑这份 PPT
+                </button>
+              ) : (
+                <div className="space-y-2.5">
+                  <label className="block text-sm font-medium">继续编辑（保留现有设计，只改指定页）</label>
+                  <textarea
+                    className="h-20 w-full resize-y rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-orange-400"
+                    placeholder="例如：把第 2 页的数据更新为最新季度；再加一页风险提示"
+                    value={reditText} onChange={(e) => setReditText(e.target.value)} autoFocus
+                  />
+                  {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>}
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+                      disabled={reditBusy || !reditText.trim()}
+                      onClick={async () => {
+                        setReditBusy(true); setError('');
+                        try {
+                          const r = await api.reditTask(task.id, reditText.trim());
+                          nav(`/task/${r.id}`);
+                        } catch (e: any) { setError(e.message); setReditBusy(false); }
+                      }}
+                    >
+                      {reditBusy ? '创建中…' : '开始新一轮编辑（按被编辑页计费）'}
+                    </button>
+                    <button className="rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-500 hover:bg-neutral-50" onClick={() => setReditOpen(false)}>取消</button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
-import { existsSync, statSync, createReadStream, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, statSync, createReadStream, readdirSync, mkdirSync, writeFileSync, copyFileSync } from 'node:fs';
 import { basename, join, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Db } from './db.js';
@@ -301,6 +301,39 @@ export async function buildApp(opts: AppOptions) {
     const res = confirmTask({ db, secretKey: SECRET, dataDir: opts.dataDir }, (req.params as any).id, auth.uid, spec);
     if (res.error) return reply.code(400).send(res);
     return { ok: true };
+  });
+
+  // 从已完成任务的结果 PPTX 直接发起下一轮编辑（连续编辑）
+  app.post('/api/tasks/:id/redit', async (req, reply) => {
+    const auth = requireAuth(req, reply); if (!auth) return;
+    const t = db.prepare('SELECT * FROM tasks WHERE id=? AND user_id=?').get((req.params as any).id, auth.uid) as any;
+    if (!t) return reply.code(404).send({ error: '任务不存在' });
+    if (t.status !== 'done' || !t.result_path || !existsSync(t.result_path)) {
+      return reply.code(400).send({ error: '任务没有可编辑的产出（需已完成）' });
+    }
+    const { instruction } = req.body as any;
+    if (!instruction || !String(instruction).trim()) return reply.code(400).send({ error: '请填写编辑指令' });
+
+    // 结果 pptx 登记为上传文件（复用 uploads 体系）
+    const upId = randomUUID();
+    const safe = `${upId}.pptx`;
+    const upDir = join(opts.dataDir, 'uploads');
+    mkdirSync(upDir, { recursive: true });
+    copyFileSync(t.result_path, join(upDir, safe));
+    db.prepare('INSERT INTO uploads(id, user_id, filename, path, mime, size, created_at) VALUES (?,?,?,?,?,?,?)').run(
+      upId, auth.uid, basename(t.result_path), join(upDir, safe),
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', statSync(t.result_path).size, Date.now()
+    );
+
+    // 创建 edit_native 任务并直接执行
+    const id = createTask(
+      { db, secretKey: SECRET, dataDir: opts.dataDir },
+      auth.uid,
+      { mode: 'edit_native', fileId: upId, instruction: String(instruction).slice(0, 5000) }
+    );
+    log('TASK', `用户 [${auth.uid}] 从任务 ${t.id} 连续编辑 → 新任务 ${id}`);
+    void (await import('./routes.js')).runEditNative({ db, secretKey: SECRET, dataDir: opts.dataDir }, id);
+    return { id };
   });
 
   app.post('/api/tasks/:id/cancel', async (req, reply) => {
