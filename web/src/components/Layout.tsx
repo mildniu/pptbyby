@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Presentation, Sparkles, History, Settings, ShieldUser, ClipboardList, LogOut, Coins } from 'lucide-react';
+import { Presentation, Sparkles, History, Settings, ShieldUser, ClipboardList, LogOut, Coins, LayoutTemplate } from 'lucide-react';
 import { useApp } from '../stores/app';
 
 const linkCls = ({ isActive }: { isActive: boolean }) =>
@@ -22,6 +22,7 @@ export default function Layout() {
         <nav className="flex flex-col gap-1">
           <NavLink to="/create" className={linkCls}><Sparkles className="h-4 w-4" />创建 PPT</NavLink>
           <NavLink to="/history" className={linkCls}><History className="h-4 w-4" />我的任务</NavLink>
+          <NavLink to="/templates" className={linkCls}><LayoutTemplate className="h-4 w-4" />模板库</NavLink>
           <NavLink to="/settings" className={linkCls}><Settings className="h-4 w-4" />网关设置</NavLink>
           {user?.role === 'admin' && (
             <>

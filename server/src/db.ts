@@ -58,6 +58,27 @@ export function openDb(dataDir: string): { db: Db; mediaDir: string } {
       task_id TEXT,
       created_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS uploads (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      path TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      style_json TEXT NOT NULL DEFAULT '{}', -- {mode, palette[], typography, notes}
+      cover_svg TEXT,           -- 封面页示例 SVG（可选）
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   // 迁移：老表补列

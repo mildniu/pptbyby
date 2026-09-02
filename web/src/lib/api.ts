@@ -25,8 +25,47 @@ export interface ImageSpec {
   id: string;
   desc: string;
   usage: string;
-  status: string;
+  origin: 'ai' | 'user';
   file?: string;
+  status: string;
+  error?: string;
+}
+
+export interface StepProgress {
+  key: 'plan' | 'assets' | 'pages' | 'inspect' | 'export';
+  label: string;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  startedAt?: number;
+  endedAt?: number;
+  message?: string;
+}
+
+export interface PageProgress {
+  id: string;
+  title: string;
+  role: string;
+  status: 'pending' | 'generating' | 'ok' | 'failed';
+  error?: string;
+  retries?: number;
+  attempts?: string[];
+}
+
+export interface UploadItem {
+  id: string;
+  filename: string;
+  url: string;
+}
+
+export interface TemplateItem {
+  id: string;
+  name: string;
+  description: string;
+  style: { mode: string; palette: string[]; typography: string; notes: string };
+  coverSvgUrl: string | null;
+  created_by: string;
+  created_by_name?: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface DesignSpec {
@@ -41,7 +80,9 @@ export interface TaskProgress {
   phase: string;
   currentPage: number;
   totalPages: number;
-  pages?: { id: string; title: string; status: string; error?: string; retries?: number }[];
+  steps: StepProgress[];
+  pages: PageProgress[];
+  projectDir?: string;
   message?: string;
 }
 
@@ -58,6 +99,7 @@ export interface TaskDetail {
   spec: DesignSpec | null;
   progress: TaskProgress | null;
   slides: { page: number; svg: string }[];
+  images: { file: string; url: string }[];
   downloadUrl: string | null;
 }
 
@@ -102,8 +144,23 @@ export const api = {
   testSettings: () => req<{ ok: boolean; models: string[]; chatModel: string; imageModel: string }>('/api/settings/test', { method: 'POST' }),
   getModels: () => req<{ models: string[]; chatModel: string; imageModel: string }>('/api/models'),
 
-  createTask: (input: { mode: string; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string }) =>
+  createTask: (input: { mode: string; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[] }) =>
     req<{ id: string }>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
+  uploadAssets: async (files: File[]): Promise<UploadItem[]> => {
+    const fd = new FormData();
+    for (const f of files) fd.append('files', f, f.name);
+    const res = await fetch('/api/uploads', { method: 'POST', credentials: 'include', body: fd });
+    if (res.status === 401) { window.dispatchEvent(new Event('auth:expired')); throw new Error('未登录'); }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data as any).error ?? '上传失败');
+    return (data as any).uploads as UploadItem[];
+  },
+  listTemplates: () => req<{ templates: TemplateItem[] }>('/api/templates'),
+  createTemplate: (input: { name: string; description?: string; style: any; coverSvg?: string }) =>
+    req<{ id: string }>('/api/templates', { method: 'POST', body: JSON.stringify(input) }),
+  updateTemplate: (id: string, input: { name?: string; description?: string; style?: any; coverSvg?: string }) =>
+    req<{ ok: boolean }>(`/api/templates/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+  deleteTemplate: (id: string) => req<{ ok: boolean }>(`/api/templates/${id}`, { method: 'DELETE' }),
   listTasks: () => req<{ tasks: TaskSummary[] }>('/api/tasks'),
   getTask: (id: string) => req<TaskDetail>(`/api/tasks/${id}`),
   confirmTask: (id: string, spec?: DesignSpec) =>

@@ -92,3 +92,60 @@ describe('credits policy', () => {
     expect(quoteTask(5, 0).total).toBe(5);
   });
 });
+
+describe('templates', () => {
+  it('创建 / 列表 / 编辑 / 删除', async () => {
+    const c = await req('POST', '/api/templates', {
+      name: '测试模板', description: '单测',
+      style: { mode: 'swiss-grid', palette: ['#111111', '#F5F5F5', '#FF0000'], typography: '两档字阶', notes: '红色 accent' },
+    });
+    expect(c.code).toBe(200);
+    const id = c.body.id;
+
+    const list = await req('GET', '/api/templates');
+    expect(list.code).toBe(200);
+    const tpl = list.body.templates.find((t: any) => t.id === id);
+    expect(tpl.name).toBe('测试模板');
+    expect(tpl.style.palette).toHaveLength(3);
+
+    const upd = await req('PUT', `/api/templates/${id}`, { name: '改名模板', style: { mode: 'editorial', palette: ['#222222'], typography: '', notes: '' } });
+    expect(upd.code).toBe(200);
+
+    const del = await req('DELETE', `/api/templates/${id}`);
+    expect(del.code).toBe(200);
+    const list2 = await req('GET', '/api/templates');
+    expect(list2.body.templates.find((t: any) => t.id === id)).toBeUndefined();
+  });
+
+  it('名称必填校验', async () => {
+    const r = await req('POST', '/api/templates', { name: '' });
+    expect(r.code).toBe(400);
+  });
+});
+
+describe('uploads', () => {
+  it('multipart 上传图片成功，非图片拒绝', async () => {
+    const pngB64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    const buf = Buffer.from(pngB64, 'base64');
+    const boundary = '----vitest' + Date.now();
+    const body = [
+      `--${boundary}`,
+      'Content-Disposition: form-data; name="files"; filename="t.png"',
+      'Content-Type: image/png',
+      '',
+      buf.toString('binary'),
+      `--${boundary}--`,
+      '',
+    ].join('\r\n');
+    const res = await app.inject({
+      method: 'POST', url: '/api/uploads',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}`, cookie: `pptbyby_session=${cookie}` },
+      payload: Buffer.from(body, 'binary'),
+    });
+    expect(res.statusCode).toBe(200);
+    const data = res.json();
+    expect(data.uploads).toHaveLength(1);
+    expect(data.uploads[0].filename).toBe('t.png');
+    expect(data.uploads[0].url).toMatch(/^\/media\/uploads\//);
+  });
+});

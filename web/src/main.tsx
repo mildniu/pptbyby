@@ -8,6 +8,7 @@ import CreatePage from './pages/CreatePage';
 import TaskPage from './pages/TaskPage';
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
+import TemplatesPage from './pages/TemplatesPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminTasksPage from './pages/AdminTasksPage';
 import { useApp } from './stores/app';
@@ -49,6 +50,7 @@ const router = createBrowserRouter([
       { path: 'create', element: <CreatePage /> },
       { path: 'task/:id', element: <TaskPage /> },
       { path: 'history', element: <HistoryPage /> },
+      { path: 'templates', element: <TemplatesPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'admin/users', element: <AdminGuard><AdminUsersPage /></AdminGuard> },
       { path: 'admin/tasks', element: <AdminGuard><AdminTasksPage /></AdminGuard> },

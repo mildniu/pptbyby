@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Db } from './db.js';
 import { getUserGatewayConfig, chatCompletion, generateImage, type GatewayConfig, type ChatMessage } from './gateway.js';
@@ -32,14 +32,16 @@ export interface ImageSpec {
   id: string;
   desc: string;
   usage: string;
-  status: 'pending' | 'generating' | 'done' | 'failed';
+  origin: 'ai' | 'user'; // AI 生成 / 用户上传
   file?: string;
+  status: 'pending' | 'generating' | 'done' | 'failed' | 'ready'; // user 图片直接 ready
   error?: string;
 }
 
 export interface DesignSpec {
   title: string;
   format: string;
+  templateId?: string | null;
   pages: PageSpec[];
   images: ImageSpec[];
   style: {
@@ -50,20 +52,52 @@ export interface DesignSpec {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 进度模型：phase + 步骤时间线（前端逐步骤可点查看）
+// ---------------------------------------------------------------------------
+
+export type StepKey = 'plan' | 'assets' | 'pages' | 'inspect' | 'export';
+
+export interface StepProgress {
+  key: StepKey;
+  label: string;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  startedAt?: number;
+  endedAt?: number;
+  message?: string;
+}
+
 interface PageProgress {
   id: string;
   title: string;
+  role: string;
   status: 'pending' | 'generating' | 'ok' | 'failed';
-  error?: string;
-  retries?: number;
+  error?: string;      // 最后一次质检/生成错误
+  retries?: number;     // 重试次数
+  attempts?: string[];  // 每次尝试的错误（时间线细节）
 }
 
 export interface TaskProgress {
   phase: string;
   currentPage: number;
   totalPages: number;
+  steps: StepProgress[];
   pages: PageProgress[];
+  /** 项目目录名（前端拼 /media 用） */
+  projectDir?: string;
   message?: string;
+}
+
+const STEP_DEFS: { key: StepKey; label: string }[] = [
+  { key: 'plan', label: '规划大纲' },
+  { key: 'assets', label: '准备素材' },
+  { key: 'pages', label: '逐页生成' },
+  { key: 'inspect', label: '质量终检' },
+  { key: 'export', label: '导出 PPTX' },
+];
+
+function initialSteps(pages?: number): StepProgress[] {
+  return STEP_DEFS.map((s) => ({ key: s.key, label: s.label, status: 'pending' as const }));
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +156,19 @@ function updateTask(deps: OrchestratorDeps, id: string, patch: Partial<TaskRow>)
 
 function setProgress(deps: OrchestratorDeps, id: string, progress: TaskProgress): void {
   updateTask(deps, id, { progress_json: JSON.stringify(progress) });
+}
+
+/** 在现有进度上更新某个步骤状态 */
+function setStep(deps: OrchestratorDeps, id: string, key: StepKey, status: StepProgress['status'], message?: string): void {
+  const p = currentProgress(deps, id);
+  if (!p.steps) p.steps = initialSteps();
+  const s = p.steps.find((x) => x.key === key);
+  if (!s) return;
+  if (status === 'running' && !s.startedAt) s.startedAt = Date.now();
+  if (status === 'done' || status === 'failed' || status === 'skipped') s.endedAt = Date.now();
+  s.status = status;
+  if (message !== undefined) s.message = message;
+  setProgress(deps, id, p);
 }
 
 // ---------------------------------------------------------------------------
@@ -229,11 +276,19 @@ JSON 结构：
 }
 
 规则：
-- pages 数量必须等于用户要求的页数；第一页 role=cover，最后一页 role=closing，中间按内容逻辑安排 toc/section/content/data。
+- pages 数量必须等于用户要求的页数（若用户没有指定页数，则由你根据内容的充实程度决定，一般 6-12 页）；第一页 role=cover，最后一页 role=closing，中间按内容逻辑安排 toc/section/content/data。
 - outline 要写得足以让另一位设计执行者在没有上下文的情况下完成该页：包含该页的论点、数据、层级结构。
-- images 每页至多 1 张，全篇 0-4 张；只在真正提升表达时使用（封面 hero、关键场景图）。不需要图片就给空数组。
+- images 每页至多 1 张，全篇 0-4 张；只在真正提升表达时使用（封面 hero、关键场景图）。不需要图片就给空数组。用户上传了素材图片时优先使用用户图片（用对应文件名标注 origin 为 user），仅在确有缺口时补充 AI 生成图。
 - palette 给 3-5 个协调的六位十六进制色（大写 #RRGGBB），含背景/主文字/强调色。
-- 若用户给了源材料，内容必须忠于材料事实，不得编造数据。`;
+- 若用户给了源材料，内容必须忠于材料事实，不得编造数据。
+- 若指定了模板风格约束，style 必须严格遵循模板的 mode/palette/typography，不得偏离。`;
+
+interface TemplateStyle {
+  mode: string;
+  palette: string[];
+  typography: string;
+  notes: string;
+}
 
 export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<void> {
   const t = getTask(deps, taskId);
@@ -241,12 +296,41 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
   const cfg = getUserGatewayConfig(deps.db, t.user_id, deps.secretKey);
   const params = JSON.parse(t.params_json || '{}');
 
-  setProgress(deps, taskId, { phase: 'planning', currentPage: 0, totalPages: params.pages ?? 8, pages: [], message: '正在规划大纲…' });
+  const progress: TaskProgress = {
+    phase: 'planning', currentPage: 0, totalPages: params.pages ?? 0,
+    steps: initialSteps(), pages: [], message: '正在规划大纲…',
+  };
+  const planStep = progress.steps.find((s) => s.key === 'plan')!;
+  planStep.status = 'running';
+  planStep.startedAt = Date.now();
+  setProgress(deps, taskId, progress);
 
+  // 模板风格约束（若有）
+  let templateConstraint = '';
+  if (params.templateId) {
+    const tpl = deps.db.prepare('SELECT * FROM templates WHERE id=?').get(params.templateId) as any;
+    if (tpl) {
+      templateConstraint = `\n模板风格约束（必须严格遵循）：${tpl.name} — ${JSON.stringify(JSON.parse(tpl.style_json || '{}'))}`;
+    }
+  }
+
+  // 用户上传素材描述（若有）
+  let assetNote = '';
+  if (Array.isArray(params.assetIds) && params.assetIds.length) {
+    const marks = params.assetIds.map(() => '?').join(',');
+    const rows = deps.db.prepare(`SELECT u.id, u.filename FROM uploads u WHERE u.id IN (${marks})`).all(...params.assetIds) as any[];
+    if (rows.length) {
+      assetNote = `\n用户已上传素材图片（images 列表中把它们列为 origin:"user"，usage 写建议用途，status 由系统管理）：\n${rows.map((r) => `- ${r.id}（文件 ${r.filename}）`).join('\n')}`;
+    }
+  }
+
+  const pagesReq = Number(params.pages) > 0 ? `${Number(params.pages)} 页` : '页数由你决定（根据内容充实程度，6-12 页）';
   const userMsg = [
     `主题：${t.topic || '（见源材料）'}`,
     t.source_text ? `\n源材料：\n${t.source_text.slice(0, 60000)}` : '',
-    `\n要求：${params.pages ?? 8} 页，格式 ${params.format ?? 'ppt169'}，风格偏好：${params.styleHint || '自由发挥'}`,
+    `\n要求：${pagesReq}，格式 ${params.format ?? 'ppt169'}，风格偏好：${params.styleHint || '自由发挥'}`,
+    templateConstraint,
+    assetNote,
     params.audience ? `受众：${params.audience}` : '',
     params.language ? `输出语言：${params.language}` : '',
   ].filter(Boolean).join('\n');
@@ -260,7 +344,15 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
     const spec = extractJson<DesignSpec>(out);
     if (!Array.isArray(spec.pages) || !spec.pages.length) throw new Error('大纲没有页面');
     spec.format = params.format ?? 'ppt169';
-    spec.images = Array.isArray(spec.images) ? spec.images.map((im, i) => ({ ...im, id: im.id || `img${String(i + 1).padStart(2, '0')}`, status: 'pending' })) : [];
+    spec.templateId = params.templateId ?? null;
+    spec.images = Array.isArray(spec.images) ? spec.images.map((im, i) => ({
+      ...im,
+      id: im.id || `img${String(i + 1).padStart(2, '0')}`,
+      origin: im.origin === 'user' ? 'user' : 'ai',
+      status: (im.origin === 'user' ? 'pending' : 'pending') as ImageSpec['status'],
+    })) : [];
+
+    setStep(deps, taskId, 'plan', 'done', `${spec.pages.length} 页大纲已生成`);
 
     // mode=quick：跳过用户确认直接执行
     if (t.mode === 'quick') {
@@ -268,12 +360,13 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
       await startExecution(deps, taskId, spec);
     } else {
       updateTask(deps, taskId, { spec_json: JSON.stringify(spec), status: 'awaiting_confirm' });
-      setProgress(deps, taskId, { phase: 'awaiting_confirm', currentPage: 0, totalPages: spec.pages.length, pages: [], message: '大纲已就绪，等待确认' });
+      setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'awaiting_confirm', totalPages: spec.pages.length, message: '大纲已就绪，等待确认' });
     }
   } catch (e: any) {
     logError('ORCH', `任务 ${taskId} 规划失败`, e?.message);
+    setStep(deps, taskId, 'plan', 'failed', String(e?.message ?? e));
     updateTask(deps, taskId, { status: 'failed', error: `规划失败：${e?.message ?? e}`, done_at: Date.now() });
-    setProgress(deps, taskId, { phase: 'failed', currentPage: 0, totalPages: 0, pages: [], message: String(e?.message ?? e) });
+    setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'failed', message: String(e?.message ?? e) });
   }
 }
 
@@ -335,19 +428,59 @@ function svgSummary(svg: string): string {
   return texts.slice(0, 6).join(' / ').slice(0, 200);
 }
 
-async function generateAllImages(deps: OrchestratorDeps, taskId: string, cfg: GatewayConfig, spec: DesignSpec, projectPath: string): Promise<void> {
+/** 素材准备：用户上传图片复制进项目 images/；AI 图片逐张生成（含进度） */
+async function prepareAssets(
+  deps: OrchestratorDeps,
+  taskId: string,
+  cfg: GatewayConfig,
+  spec: DesignSpec,
+  projectPath: string,
+  params: any,
+): Promise<void> {
   const imgDir = join(projectPath, 'images');
   mkdirSync(imgDir, { recursive: true });
-  for (const img of spec.images) {
-    if (img.status === 'done') continue;
+
+  // 1) 用户上传素材 → 复制进项目，LLM 引用文件名（与 spec.images 里 origin=user 行对应；
+  //    未被规划引用的上传图也一并放入，供 Executor 选用）
+  const uploadDir = join(deps.dataDir, 'uploads');
+  const userAssets: { id: string; filename: string }[] = [];
+  if (Array.isArray(params.assetIds) && params.assetIds.length && existsSync(uploadDir)) {
+    const marks = params.assetIds.map(() => '?').join(',');
+    const rows = deps.db.prepare(`SELECT id, filename, path FROM uploads WHERE id IN (${marks})`).all(...params.assetIds) as any[];
+    for (const row of rows) {
+      if (!existsSync(row.path)) continue;
+      const safeName = `user_${row.id}${row.filename.match(/\.(png|jpe?g|webp|gif)$/i)?.[0] ?? '.png'}`.toLowerCase();
+      copyFileSync(row.path, join(imgDir, safeName));
+      userAssets.push({ id: row.id, filename: safeName });
+    }
+  }
+  // 把用户图片登记进 spec.images（若 LLM 已列出同 id 则合并）
+  for (const ua of userAssets) {
+    const existing = spec.images.find((im) => im.origin === 'user' && (im.id === ua.id || im.file === ua.filename));
+    if (existing) {
+      existing.file = ua.filename;
+      existing.status = 'ready';
+    } else {
+      spec.images.push({ id: `u_${ua.id.slice(0, 8)}`, desc: '用户上传素材', usage: '按大纲需要使用', origin: 'user', file: ua.filename, status: 'ready' });
+    }
+  }
+  const userCount = userAssets.length;
+
+  // 2) AI 生成图
+  let aiDone = 0;
+  const aiImgs = spec.images.filter((im) => im.origin !== 'user');
+  for (const img of aiImgs) {
+    if (img.status === 'done' || img.status === 'ready') continue;
     img.status = 'generating';
-    setProgress(deps, taskId, { ...currentProgress(deps, taskId), message: `正在生成图片：${img.usage}` });
+    setStep(deps, taskId, 'assets', 'running', `生成配图 ${aiDone + 1}/${aiImgs.length}：${img.usage}`);
+    updateTask(deps, taskId, { spec_json: JSON.stringify(spec) });
     try {
       const b64 = await generateImage(cfg, img.desc, { size: '1536x864' });
       const file = `${img.id}.png`;
       writeFileSync(join(imgDir, file), Buffer.from(b64, 'base64'));
       img.file = file;
       img.status = 'done';
+      aiDone++;
       log('ORCH', `任务 ${taskId} 图片 ${img.id} 生成成功`);
     } catch (e: any) {
       img.status = 'failed';
@@ -356,14 +489,24 @@ async function generateAllImages(deps: OrchestratorDeps, taskId: string, cfg: Ga
       // 图片失败不阻断流程，SVG 阶段会拿不到该资源从而使用占位/纯排版方案
     }
   }
+
+  const okAssets = spec.images.filter((im) => im.status === 'done' || im.status === 'ready').length;
+  const parts = [`${okAssets} 张素材就绪`];
+  if (userCount) parts.push(`含用户上传 ${userCount} 张`);
+  const failed = aiImgs.length - aiDone;
+  if (failed > 0) parts.push(`${failed} 张生成失败（跳过）`);
+  setStep(deps, taskId, 'assets', okAssets || !aiImgs.length ? 'done' : 'done', parts.join('，'));
+  updateTask(deps, taskId, { spec_json: JSON.stringify(spec) });
 }
 
 function currentProgress(deps: OrchestratorDeps, taskId: string): TaskProgress {
   const t = getTask(deps, taskId);
   try {
-    return JSON.parse(t?.progress_json || '{}');
+    const p = JSON.parse(t?.progress_json || '{}');
+    if (!Array.isArray(p.steps)) p.steps = initialSteps();
+    return p;
   } catch {
-    return { phase: 'generating', currentPage: 0, totalPages: 0, pages: [] };
+    return { phase: 'generating', currentPage: 0, totalPages: 0, steps: initialSteps(), pages: [] };
   }
 }
 
@@ -388,30 +531,38 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
   let projectPath = '';
   try {
     const cfg = getUserGatewayConfig(deps.db, userId, deps.secretKey);
+    const params = JSON.parse(t.params_json || '{}');
     // project_manager 以 cwd 为基准创建 <cwd>/projects/<name>，所以 cwd 直接给 dataDir
     const projectsRoot = join(deps.dataDir, 'projects');
     mkdirSync(projectsRoot, { recursive: true });
     projectPath = await initProject(taskId.replace(/-/g, '_'), spec.format, deps.dataDir);
+    const projectDir = basename(projectPath);
     log('ORCH', `任务 ${taskId} 项目目录: ${projectPath}`);
+    setProgress(deps, taskId, { ...currentProgress(deps, taskId), projectDir });
 
-    // 1) 图片资源
-    if (spec.images.length) {
-      await generateAllImages(deps, taskId, cfg, spec, projectPath);
-      updateTask(deps, taskId, { spec_json: JSON.stringify(spec) });
+    // 1) 素材（用户上传复制 + AI 生成）
+    const hasAssets = (Array.isArray(params.assetIds) && params.assetIds.length) || spec.images.some((im) => im.origin !== 'user');
+    if (hasAssets) {
+      await prepareAssets(deps, taskId, cfg, spec, projectPath, params);
+    } else {
+      setStep(deps, taskId, 'assets', 'skipped', '无配图素材');
     }
 
     // 2) 逐页生成 + 质检回环
     const svgDir = join(projectPath, 'svg_output');
     mkdirSync(svgDir, { recursive: true });
     const total = spec.pages.length;
-    const pagesProgress: PageProgress[] = spec.pages.map((p) => ({ id: p.id, title: p.title, status: 'pending' }));
+    const pagesProgress: PageProgress[] = spec.pages.map((p) => ({ id: p.id, title: p.title, role: p.role, status: 'pending' }));
     const prevSummaries: string[] = [];
+    setStep(deps, taskId, 'pages', 'running', `0/${total} 页`);
 
     for (let i = 0; i < total; i++) {
       const page = spec.pages[i];
       const pageNum = i + 1;
       pagesProgress[i].status = 'generating';
-      setProgress(deps, taskId, { phase: 'generating', currentPage: pageNum, totalPages: total, pages: pagesProgress });
+      pagesProgress[i].attempts = [];
+      setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'generating', currentPage: pageNum, totalPages: total, pages: pagesProgress });
+      setStep(deps, taskId, 'pages', 'running', `第 ${pageNum}/${total} 页：${page.title}`);
 
       const svgFile = join(svgDir, `slide_${String(pageNum).padStart(2, '0')}.svg`);
       let ok = false;
@@ -424,48 +575,60 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
           const check = await qualityCheck(projectPath, 'page', `slide_${String(pageNum).padStart(2, '0')}.svg`);
           if (check.ok) {
             ok = true;
+            if (attempt > 0) pagesProgress[i].attempts!.push(`第 ${attempt + 1} 次尝试通过（修复了前次错误）`);
           } else {
             lastErr = summarizeCheckErrors(check);
+            pagesProgress[i].attempts!.push(`第 ${attempt + 1} 次质检未过：${lastErr.slice(0, 200)}`);
             log('ORCH', `任务 ${taskId} 第 ${pageNum} 页质检未过（第 ${attempt + 1} 次）：${lastErr.slice(0, 200)}`);
             pagesProgress[i].retries = attempt + 1;
           }
         } catch (e: any) {
           lastErr = String(e?.message ?? e);
+          pagesProgress[i].attempts!.push(`第 ${attempt + 1} 次异常：${lastErr.slice(0, 200)}`);
           logError('ORCH', `任务 ${taskId} 第 ${pageNum} 页生成异常`, lastErr);
         }
       }
       if (!ok && existsSync(svgFile) === false) {
         pagesProgress[i].status = 'failed';
         pagesProgress[i].error = lastErr;
-        setProgress(deps, taskId, { phase: 'generating', currentPage: pageNum, totalPages: total, pages: pagesProgress, message: `第 ${pageNum} 页失败：${lastErr}` });
+        setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'generating', currentPage: pageNum, totalPages: total, pages: pagesProgress, message: `第 ${pageNum} 页失败：${lastErr}` });
         continue; // 失败页跳过，继续后续页
       }
       if (existsSync(svgFile)) {
         pagesProgress[i].status = 'ok';
+        pagesProgress[i].error = undefined;
         prevSummaries.push(`第${pageNum}页「${page.title}」：${svgSummary(readFileSync(svgFile, 'utf8'))}`);
       }
-      setProgress(deps, taskId, { phase: 'generating', currentPage: pageNum, totalPages: total, pages: pagesProgress });
+      setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'generating', currentPage: pageNum, totalPages: total, pages: pagesProgress });
     }
 
     const okPages = pagesProgress.filter((p) => p.status === 'ok').length;
-    if (okPages === 0) throw new Error('所有页面生成失败');
+    if (okPages === 0) {
+      setStep(deps, taskId, 'pages', 'failed', '全部页面失败');
+      throw new Error('所有页面生成失败');
+    }
+    setStep(deps, taskId, 'pages', 'done', `${okPages}/${total} 页完成${total - okPages ? `，${total - okPages} 页失败` : ''}`);
 
     // 3) 终检（quick-generate 契约：--stage final 必须过），失败则带错误修复并复检，最多 2 轮
-    setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'exporting', message: '最终质检…' });
+    setStep(deps, taskId, 'inspect', 'running', '质量终检…');
     let finalCheck = await qualityCheck(projectPath, 'final');
     for (let round = 0; round < 2 && !finalCheck.ok; round++) {
       log('ORCH', `任务 ${taskId} 终检未通过（第 ${round + 1} 轮修复）`);
+      setStep(deps, taskId, 'inspect', 'running', `终检未过，第 ${round + 1} 轮修复…`);
       await repairRound(deps, taskId, cfg, spec, svgDir, pagesProgress, finalCheck);
       finalCheck = await qualityCheck(projectPath, 'final');
     }
     if (!finalCheck.ok) {
+      setStep(deps, taskId, 'inspect', 'failed', summarizeCheckErrors(finalCheck).slice(0, 200));
       throw new Error(`终检未通过：${summarizeCheckErrors(finalCheck).slice(0, 500)}`);
     }
+    setStep(deps, taskId, 'inspect', 'done', '质量终检通过');
 
     // 4) 导出 PPTX
-    setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'exporting', message: '正在导出 PPTX…' });
+    setStep(deps, taskId, 'export', 'running', '导出 PPTX…');
     const exportRes = await runPython('svg_to_pptx.py', [projectPath, '--quick-generate'], { timeoutMs: 600000 });
     if (exportRes.code !== 0) {
+      setStep(deps, taskId, 'export', 'failed', exportRes.stderr.slice(-200));
       throw new Error(`PPTX 导出失败: ${exportRes.stderr.slice(-500) || exportRes.stdout.slice(-500)}`);
     }
     const exportsDir = join(projectPath, 'exports');
@@ -473,8 +636,8 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
     if (!pptxFiles.length) throw new Error('导出目录中没有 pptx 文件');
     const resultPath = join(exportsDir, pptxFiles[pptxFiles.length - 1]);
 
-    // 5) 结算：实际页数 × 1 + 成功图片 × 1
-    const doneImages = spec.images.filter((im) => im.status === 'done').length;
+    // 5) 结算：实际页数 × 1 + 成功 AI 图片 × 1（用户上传素材不收费）
+    const doneImages = spec.images.filter((im) => im.origin !== 'user' && im.status === 'done').length;
     settleCredits(deps, userId, taskId, okPages * CREDITS_PER_PAGE + doneImages * CREDITS_PER_IMAGE);
 
     updateTask(deps, taskId, {
@@ -483,7 +646,8 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
       done_at: Date.now(),
       error: pagesProgress.some((p) => p.status === 'failed') ? `有 ${total - okPages} 页生成失败` : null,
     });
-    setProgress(deps, taskId, { phase: 'done', currentPage: total, totalPages: total, pages: pagesProgress, message: '完成' });
+    setStep(deps, taskId, 'export', 'done', basename(resultPath));
+    setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'done', currentPage: total, totalPages: total, pages: pagesProgress, message: '完成' });
     log('ORCH', `任务 ${taskId} 完成: ${resultPath}`);
   } catch (e: any) {
     logError('ORCH', `任务 ${taskId} 执行失败`, e?.stack ?? e?.message ?? String(e));
@@ -566,9 +730,10 @@ async function repairRound(
 export function createTask(
   deps: OrchestratorDeps,
   userId: string,
-  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string },
+  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[] },
 ): string {
   const id = randomUUID();
+  const pages = Number(input.pages) > 0 ? Number(input.pages) : 0; // 0 = AI 决定
   deps.db
     .prepare(
       `INSERT INTO tasks(id, user_id, mode, status, topic, source_text, params_json, progress_json, created_at)
@@ -577,8 +742,12 @@ export function createTask(
     .run(
       id, userId, input.mode, 'planning',
       input.topic ?? '', input.sourceText ?? '',
-      JSON.stringify({ pages: input.pages ?? 8, format: input.format ?? 'ppt169', styleHint: input.styleHint ?? '', audience: input.language ?? '', language: input.language ?? '' }),
-      JSON.stringify({ phase: 'planning', currentPage: 0, totalPages: input.pages ?? 8, pages: [] }),
+      JSON.stringify({
+        pages, format: input.format ?? 'ppt169', styleHint: input.styleHint ?? '',
+        audience: input.audience ?? '', language: input.language ?? '',
+        templateId: input.templateId ?? null, assetIds: input.assetIds ?? [],
+      }),
+      JSON.stringify({ phase: 'planning', currentPage: 0, totalPages: pages, steps: initialSteps(), pages: [], message: '正在规划大纲…' }),
       Date.now()
     );
   // 异步规划，不阻塞响应
