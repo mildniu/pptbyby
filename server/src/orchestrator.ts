@@ -282,6 +282,7 @@ JSON 结构：
 - pages 数量必须等于用户要求的页数（若用户没有指定页数，则由你根据内容的充实程度决定，一般 6-12 页）；第一页 role=cover，最后一页 role=closing，中间按内容逻辑安排 toc/section/content/data。
 - outline 要写得足以让另一位设计执行者在没有上下文的情况下完成该页：包含该页的论点、数据、层级结构。
 - images 每页至多 1 张，全篇 0-4 张；只在真正提升表达时使用（封面 hero、关键场景图）。不需要图片就给空数组。用户上传了素材图片时优先使用用户图片（用对应文件名标注 origin 为 user），仅在确有缺口时补充 AI 生成图。
+- IMAGE_MODE_RULE（优先级高于上一条）：image_mode 为 "none" 时 images 必须为空数组（纯排版，不用任何 AI 配图，用户上传素材仍可用）；为 "every" 时每页都安排 1 张配图（除结尾页可选）；为 "auto" 或缺省时按上一条智能判断。
 - palette 给 3-5 个协调的六位十六进制色（大写 #RRGGBB），含背景/主文字/强调色。
 - 若用户给了源材料，内容必须忠于材料事实，不得编造数据。
 - 若指定了模板风格约束，style 必须严格遵循模板的 mode/palette/typography，不得偏离。`;
@@ -366,8 +367,10 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
   }
 
   const pagesReq = Number(params.pages) > 0 ? `${Number(params.pages)} 页` : '页数由你决定（根据内容充实程度，6-12 页）';
+  const imageMode = ['auto', 'none', 'every'].includes(params.imageMode) ? params.imageMode : 'auto';
   const userMsg = [
     `主题：${t.topic || '（见源材料）'}`,
+    `image_mode: ${imageMode}`,
     t.source_text ? `\n源材料：\n${t.source_text.slice(0, 60000)}` : '',
     researchNote,
     `\n要求：${pagesReq}，格式 ${params.format ?? 'ppt169'}，风格偏好：${params.styleHint || '自由发挥'}`,
@@ -386,13 +389,29 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
     const spec = extractJson<DesignSpec>(out);
     if (!Array.isArray(spec.pages) || !spec.pages.length) throw new Error('大纲没有页面');
     spec.format = params.format ?? 'ppt169';
+    // imageMode=every：确保每页（结尾页除外）都有 1 张 AI 配图
+    if (imageMode === 'every') {
+      spec.pages.forEach((pg, i) => {
+        if (pg.role === 'closing' || pg.role === 'ending') return;
+        if (spec.images.some((im) => im.usage.includes(pg.id))) return;
+        spec.images.push({
+          id: `img_${pg.id}`,
+          desc: `Editorial hero image for the page "${pg.title}": ${pg.outline.slice(0, 120)}. High quality, relevant to the topic, suitable as a slide illustration.`,
+          usage: `${pg.id} ${pg.title} 配图`,
+          origin: 'ai',
+          status: 'pending',
+        });
+      });
+    }
     spec.templateId = params.templateId ?? null;
-    spec.images = Array.isArray(spec.images) ? spec.images.map((im, i) => ({
-      ...im,
-      id: im.id || `img${String(i + 1).padStart(2, '0')}`,
-      origin: im.origin === 'user' ? 'user' : 'ai',
-      status: (im.origin === 'user' ? 'pending' : 'pending') as ImageSpec['status'],
-    })) : [];
+    spec.images = Array.isArray(spec.images) ? spec.images
+      .filter((im) => imageMode !== 'none' || im.origin === 'user') // none 模式只留用户素材
+      .map((im, i) => ({
+        ...im,
+        id: im.id || `img${String(i + 1).padStart(2, '0')}`,
+        origin: im.origin === 'user' ? 'user' : 'ai',
+        status: 'pending' as ImageSpec['status'],
+      })) : [];
 
     setStep(deps, taskId, 'plan', 'done', `${spec.pages.length} 页大纲已生成`);
 
@@ -797,7 +816,7 @@ function countCheckErrors(check: { ok: boolean; report: any; raw: string }): num
 export function createTask(
   deps: OrchestratorDeps,
   userId: string,
-  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean; instruction?: string; name?: string; description?: string; fileId?: string; fileIds?: string[] },
+  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean; instruction?: string; name?: string; description?: string; fileId?: string; fileIds?: string[]; imageMode?: string },
 ): string {
   const id = randomUUID();
   const pages = Number(input.pages) > 0 ? Number(input.pages) : 0; // 0 = AI 决定
@@ -813,7 +832,7 @@ export function createTask(
         pages, format: input.format ?? 'ppt169', styleHint: input.styleHint ?? '',
         audience: input.audience ?? '', language: input.language ?? '',
         templateId: input.templateId ?? null, assetIds: input.assetIds ?? [],
-        research: input.research ?? false,
+        research: input.research ?? false, imageMode: input.imageMode ?? 'auto',
         instruction: input.instruction ?? '', name: input.name ?? '', description: input.description ?? '',
         fileId: input.fileId ?? null, fileIds: input.fileIds ?? [],
       }),

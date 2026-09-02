@@ -51,6 +51,12 @@ const LANG_OPTS: Option[] = [
   { value: 'English', label: 'English' },
 ];
 
+const IMAGE_MODE_OPTS: Option[] = [
+  { value: 'auto', label: '配图 AI 定' },
+  { value: 'none', label: '无配图' },
+  { value: 'every', label: '每页配图' },
+];
+
 /** 通用上传：pptx 或图片 */
 function useUploader() {
   const [items, setItems] = useState<UploadItem[]>([]);
@@ -81,6 +87,7 @@ export default function CreatePage() {
   const [language, setLanguage] = useState('中文');
   const [templateId, setTemplateId] = useState('auto');
   const [research, setResearch] = useState(false);
+  const [imageMode, setImageMode] = useState('auto');
   const [hasTavily, setHasTavily] = useState(false);
 
   const [myTemplates, setMyTemplates] = useState<TemplateItem[]>([]);
@@ -126,6 +133,7 @@ export default function CreatePage() {
           templateId: templateId && templateId !== 'auto' ? templateId : null,
           assetIds: assets.items.map((a) => a.id),
           research: research && hasTavily,
+          imageMode,
         };
       } else if (mode === 'beautify') {
         input = { mode, fileId: srcFile.pptx?.id, instruction };
@@ -271,6 +279,7 @@ export default function CreatePage() {
                 <PillSelect value={pages} options={PAGE_OPTS} onChange={setPages} />
                 <PillSelect value={format} options={FORMAT_OPTS} onChange={setFormat} />
                 <PillSelect value={language} options={LANG_OPTS} onChange={setLanguage} />
+                <PillSelect value={imageMode} options={IMAGE_MODE_OPTS} onChange={setImageMode} />
                 <PillSelect value={templateId} options={tplOptions} onChange={setTemplateId} wide />
               </>
             )}

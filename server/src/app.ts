@@ -159,7 +159,7 @@ export async function buildApp(opts: AppOptions) {
   // ---------- 任务 ----------
   app.post('/api/tasks', async (req, reply) => {
     const auth = requireAuth(req, reply); if (!auth) return;
-    const { mode, topic, sourceText, pages, format, styleHint, audience, language, templateId, assetIds, instruction, name, description, fileId, fileIds, research } = req.body as any;
+    const { mode, topic, sourceText, pages, format, styleHint, audience, language, templateId, assetIds, instruction, name, description, fileId, fileIds, research, imageMode } = req.body as any;
     const m = (TASK_MODES.find((x) => x.id === mode)?.id ?? 'generate') as TaskMode;
     const ready = TASK_MODES.find((x) => x.id === m)?.ready;
     if (!ready) return reply.code(400).send({ error: '该模式即将上线' });
@@ -186,6 +186,7 @@ export async function buildApp(opts: AppOptions) {
         fileId: fileId ? String(fileId) : undefined,
         fileIds: Array.isArray(fileIds) ? fileIds.map(String).slice(0, 30) : [],
         research: Boolean(research),
+        imageMode: ['auto', 'none', 'every'].includes(String(imageMode)) ? String(imageMode) : 'auto',
       }
     );
     log('TASK', `用户 [${auth.uid}] 创建任务 ${id} (mode=${m}, pages=${p || 'AI'}, assets=${assetIds?.length ?? 0}, tpl=${templateId ?? '-'})`);
