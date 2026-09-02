@@ -565,6 +565,9 @@ export default function TaskPage() {
             <button onClick={() => setEditing(!editing)} className="flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-100">
               <Pencil className="h-3.5 w-3.5" />{editing ? '放弃编辑' : '编辑大纲'}
             </button>
+            <button onClick={() => api.cancelTask(task.id).then(load)} className="flex items-center gap-1 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs text-neutral-600 hover:bg-red-50 hover:text-red-600">
+              <XCircle className="h-3.5 w-3.5" />取消任务
+            </button>
             <button onClick={() => confirm()} className="flex items-center gap-1 rounded-lg bg-orange-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-orange-700">
               <Check className="h-3.5 w-3.5" />确认并生成（{activeSpec.pages.length + activeSpec.images.filter((i) => i.origin !== 'user').length} 积分）
             </button>
