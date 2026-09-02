@@ -70,9 +70,10 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
   const tRoot = join(SKILL_DIR, 'templates');
   const media = (rel: string) => mediaUrl(rel);
 
-  // brands（品牌 identity：色板+字体+语气）
+  // brands（品牌 identity：色板+字体+语气；部分品牌带 logo 素材）
   const brandsIdx = readJson(join(tRoot, 'brands', 'brands_index.json')) ?? {};
   for (const [id, meta] of Object.entries<any>(brandsIdx)) {
+    const imgs = imgEntries(join(tRoot, 'brands', id, 'images'), 'image').slice(0, 4);
     out.push({
       id: `builtin:brand/${id}`,
       kind: 'brand',
@@ -85,7 +86,7 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
         typography: '见品牌规范（design_spec.md）',
         notes: meta.summary ?? '',
       },
-      refImages: [],
+      refImages: imgs.map((r) => ({ name: r.name, url: mediaUrl(r.rel) })),
     });
   }
 

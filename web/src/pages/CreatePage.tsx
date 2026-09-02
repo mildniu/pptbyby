@@ -1,8 +1,29 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Upload, ArrowUp, Loader2, X, Globe, FileUp, Paperclip } from 'lucide-react';
 import { api, type TemplateItem, type BuiltinTemplate, type UploadItem } from '../lib/api';
 import { PillSelect, type Option } from '../components/PillSelect';
+
+/** 内联渲染一张 SVG（deck 页面原型），失败显示占位 */
+function InlineSvg({ url, className }: { url: string; className?: string }) {
+  const [svg, setSvg] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(url, { credentials: 'include' })
+      .then((r) => (r.ok ? r.text() : Promise.reject()))
+      .then((t) => alive && setSvg(t))
+      .catch(() => alive && setSvg(null));
+    return () => { alive = false; };
+  }, [url]);
+  if (!svg) return <div className={className ? `${className} bg-neutral-50` : 'bg-neutral-50'} />;
+  return <div className={className} style={{ position: 'relative' }} dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
+const KIND_TAG: Record<string, { label: string; cls: string }> = {
+  deck: { label: '场景', cls: 'bg-emerald-50 text-emerald-600' },
+  brand: { label: '品牌', cls: 'bg-purple-50 text-purple-600' },
+  style: { label: '风格', cls: 'bg-blue-50 text-blue-600' },
+};
 
 const MODES = [
   { id: 'generate', name: '生成', desc: '主题 → 确认大纲 → 逐页生成可编辑 PPTX' },
@@ -316,6 +337,79 @@ export default function CreatePage() {
       <p className="mt-3 text-center text-xs text-neutral-400">
         {MODES.find((m) => m.id === mode)?.desc} · 1 积分/页，AI 配图每张 +1，失败自动退还
       </p>
+
+      {/* 模板画廊（仅生成模式）：预览 + 一键选风格 */}
+      {isGenMode && builtin.length > 0 && (
+        <section className="mt-8">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold text-neutral-800">模板风格 <span className="ml-1 font-normal text-neutral-400">选择后生成时严格遵循其规范</span></h2>
+            <Link to="/templates" className="text-xs text-orange-600 hover:underline">全部模板 →</Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {(['deck', 'brand', 'style'] as const).flatMap((k) => builtin.filter((b) => b.kind === k)).map((t) => {
+              const selected = templateId === t.id;
+              const tag = KIND_TAG[t.kind];
+              const cover = t.refImages[0];
+              return (
+                <div key={t.id}
+                  className={`group overflow-hidden rounded-xl border bg-white transition-all ${
+                    selected ? 'border-orange-400 ring-2 ring-orange-200' : 'border-neutral-200 hover:border-neutral-300 hover:shadow-sm'
+                  }`}
+                >
+                  {/* 预览区：deck 用页面原型；brand 有 logo 用 logo；否则色板示意 */}
+                  <div className="relative aspect-video overflow-hidden bg-neutral-50">
+                    {cover ? (
+                      cover.url.endsWith('.svg') ? (
+                        <InlineSvg url={cover.url} className="slide-frame absolute inset-0 [&>svg]:h-full [&>svg]:w-full" />
+                      ) : (
+                        <img src={cover.url} alt={t.name} className="absolute inset-0 h-full w-full object-contain p-4" />
+                      )
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4"
+                        style={{ background: `linear-gradient(135deg, ${t.primaryColor ?? '#f5f5f4'}18, ${t.primaryColor ?? '#a8a29e'}33)` }}>
+                        <div className="flex gap-1">
+                          {(t.style.palette?.length ? t.style.palette : [t.primaryColor ?? '#d6d3d1']).slice(0, 4).map((c, i) => (
+                            <span key={i} className="h-4 w-4 rounded-full border border-white shadow-sm" style={{ background: c }} />
+                          ))}
+                        </div>
+                        <span className="line-clamp-1 text-[11px] font-medium text-neutral-600">{t.style.mode}</span>
+                      </div>
+                    )}
+                    <span className={`absolute left-2 top-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${tag.cls}`}>{tag.label}</span>
+                    {t.pageCount && <span className="absolute right-2 top-2 rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white">{t.pageCount} 页原型</span>}
+                  </div>
+                  {/* 信息 + 选择按钮 */}
+                  <div className="p-2.5">
+                    <div className="mb-1 truncate text-sm font-medium">{t.name}</div>
+                    <div className="mb-2 line-clamp-1 text-[11px] text-neutral-400" title={t.summary}>{t.summary}</div>
+                    <button
+                      onClick={() => setTemplateId(selected ? 'auto' : t.id)}
+                      className={`w-full rounded-lg py-1.5 text-xs font-medium transition-colors ${
+                        selected ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-900 hover:text-white'
+                      }`}
+                    >
+                      {selected ? '✓ 已选择该风格' : '选择该风格'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {myTemplates.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+              <span>我的模板：</span>
+              {myTemplates.map((t) => (
+                <button key={t.id}
+                  onClick={() => setTemplateId(templateId === t.id ? 'auto' : t.id)}
+                  className={`rounded-full px-2.5 py-1 transition-colors ${
+                    templateId === t.id ? 'bg-neutral-900 font-medium text-white' : 'bg-neutral-100 hover:bg-neutral-200'
+                  }`}
+                >{t.name}</button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
