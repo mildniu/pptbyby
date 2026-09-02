@@ -363,44 +363,92 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
     // 模板蒸馏不收积分（轻量 LLM 调用）
     updateTask(deps, taskId, { credits_cost: 0 });
 
-    // 1) 收集参考材料
+    // 1) 收集参考材料：pptx_intake 提取完整风格数据（主题色板/观测色频/字号分布/每页结构）
     setStep(deps, taskId, 'plan', 'running', ref ? '分析参考 PPTX…' : '分析主题描述…');
     let refContent = '';
-    let identity: any = null;
-    if (ref && ref.path.endsWith('.pptx')) {
-      // 用 pptx_to_svg 提取文本与主题
+    let coverSvg: string | null = null;
+    if (ref && (ref.path.endsWith('.pptx') || ref.mime.includes('presentationml'))) {
       const tmpDir = join(deps.dataDir, 'tmp');
       mkdirSync(tmpDir, { recursive: true });
-      const tmpWs = join(tmpDir, `${taskId.replace(/-/g, '_')}_tpl`);
-      const imp = await runPython('pptx_to_svg.py', [ref.path, '-o', tmpWs, '--inheritance-mode', 'flat'], { timeoutMs: 300000 });
-      if (imp.code === 0) {
-        const svgDir = join(tmpWs, 'svg-flat');
-        if (existsSync(svgDir)) {
-          const files = readdirSync(svgDir).filter((f) => f.endsWith('.svg')).sort();
-          refContent = files.slice(0, 10).map((f) => readFileSync(join(svgDir, f), 'utf8').slice(0, 6000)).join('\n---\n');
+      const intakeDir = join(tmpDir, `${taskId.replace(/-/g, '_')}_intake`);
+      // 标准 intake 分析（identity + slide_library + source_profile）
+      const intake = await runPython('pptx_intake.py', [ref.path, '-o', intakeDir], { timeoutMs: 300000 });
+      if (intake.code === 0) {
+        // 汇总结构化风格数据
+        const parts: string[] = [];
+        const idFiles = existsSync(intakeDir) ? readdirSync(intakeDir).filter((f) => f.endsWith('.identity.json')) : [];
+        if (idFiles.length) {
+          const identity = JSON.parse(readFileSync(join(intakeDir, idFiles[0]), 'utf8'));
+          parts.push(`== 主题规范（deck 声明）==\n${JSON.stringify({
+            palette: identity.theme?.palette,
+            fonts: {
+              title: identity.theme?.fonts?.title,
+              body: identity.theme?.fonts?.body,
+            },
+            sizes_pt: identity.theme?.sizes,
+          }, null, 1)}`);
+          // 观测值（实际使用的颜色/字体/字号频次）
+          if (identity.observed) {
+            parts.push(`== 实际观测（按使用频次排序）==\n${JSON.stringify({
+              colors: (identity.observed.colors ?? []).slice(0, 10),
+              fonts: identity.observed.fonts ?? {},  // {latin: [{value,count}], ea: [...]}
+              sizes_pt: (identity.observed.sizes_pt ?? []).slice(0, 8),
+              layout_sizes_pt: identity.layout_sizes_pt,
+            }, null, 1)}`);
+          }
         }
+        // 每页文本摘要与结构（前 12 页，展示信息组织方式）
+        const libFiles = existsSync(intakeDir) ? readdirSync(intakeDir).filter((f) => f.endsWith('.slide_library.json')) : [];
+        if (libFiles.length) {
+          const lib = JSON.parse(readFileSync(join(intakeDir, libFiles[0]), 'utf8'));
+          const slides = (lib.slides ?? []).slice(0, 12).map((s: any) => ({
+            page: s.slide_index,
+            type: s.page_type,
+            title: (s.slots ?? []).find((x: any) => x.role === 'title_candidate')?.text?.slice(0, 60),
+            bodyPreview: (s.text_summary ?? '').slice(0, 150),
+            slotRoles: (s.slots ?? []).map((x: any) => x.role).slice(0, 8),
+            tables: (s.tables ?? []).length,
+            charts: (s.charts ?? []).length,
+          }));
+          parts.push(`== 页面结构（共 ${lib.slides?.length ?? 0} 页，前 12 页摘要）==\n${JSON.stringify(slides, null, 1)}`);
+        }
+        refContent = parts.join('\n\n');
+      }
+      // 封面 SVG（视觉预览，从 pptx_to_svg 拿第一页；pptx_to_svg 要求 .pptx 扩展）
+      const tmpWs = join(tmpDir, `${taskId.replace(/-/g, '_')}_tpl`);
+      const srcPptx = ref.path.endsWith('.pptx') ? ref.path : join(tmpDir, `${taskId.replace(/-/g, '_')}_src.pptx`);
+      if (srcPptx !== ref.path) copyFileSync(ref.path, srcPptx);
+      const imp = await runPython('pptx_to_svg.py', [srcPptx, '-o', tmpWs, '--inheritance-mode', 'flat'], { timeoutMs: 300000 });
+      if (imp.code === 0) {
+        const coverFile = join(tmpWs, 'svg', 'slide_01.svg');
+        if (existsSync(coverFile)) coverSvg = readFileSync(coverFile, 'utf8').slice(0, 200000);
       }
     } else if (ref && ref.mime.startsWith('image/')) {
       refContent = `（用户提供了一张参考图：${ref.filename}，风格描述见用户说明）`;
     }
     setStep(deps, taskId, 'plan', 'done', '参考材料就绪');
 
-    // 2) LLM 蒸馏风格规范
+    // 2) LLM 蒸馏风格规范（基于结构化数据，非 SVG 片段）
     setStep(deps, taskId, 'assets', 'running', '蒸馏风格规范…');
     const distillOut = await chatCompletion(cfg, [
-      { role: 'system', content: `你是设计系统蒸馏器。根据参考材料提炼可复用的 PPT 模板规范。只输出 JSON：
+      { role: 'system', content: `你是设计系统蒸馏器。根据参考 PPT 的结构化风格数据提炼可复用的模板规范。只输出 JSON：
 {
   "name": "模板名",
   "description": "一句话适用场景",
   "style": {
     "mode": "视觉模式标识（如 brand:xxx / dark-data / swiss-grid）",
     "palette": ["#RRGGBB", ...3-6 个],
-    "typography": "字体与字阶策略",
-    "notes": "跨页一致性规则（motif、强调色用法、间距纪律等，200字内）"
+    "typography": "字体与字阶策略（含具体字号档位）",
+    "notes": "跨页一致性规则（motif、强调色用法、间距纪律、页面结构模式等，200字内）"
   }
-}` },
-      { role: 'user', content: `模板名称（用户指定）：${params.name}\n${params.description ? `用途说明：${params.description}` : ''}\n${refContent ? `参考材料（PPT 的 SVG / 图片说明）：\n${refContent.slice(0, 40000)}` : '（无参考材料，请基于名称与用途设计合理的模板规范）'}` },
-    ], { maxTokens: 4096, temperature: 0.5 });
+}
+
+硬性要求：
+- palette 必须来自「实际观测」的高频色（含背景/正文/强调色），不得凭空创造；
+- typography 必须基于观测的字体与字号分布归纳字阶档位；
+- notes 要描述真实观察到的页面结构模式（标题条位置、卡片/网格用法、强调色用在哪类元素上）。` },
+      { role: 'user', content: `模板名称（用户指定）：${params.name}\n${params.description ? `用途说明：${params.description}` : ''}\n${refContent ? `参考 PPT 风格数据：\n${refContent.slice(0, 30000)}` : '（无参考材料，请基于名称与用途设计合理的模板规范）'}` },
+    ], { maxTokens: 4096, temperature: 0.3 });
     const distilled = extractJson<any>(distillOut);
     setStep(deps, taskId, 'assets', 'done', '风格规范蒸馏完成');
 
@@ -414,7 +462,7 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
       notes: String(distilled.style?.notes ?? ''),
     });
     deps.db.prepare('INSERT INTO templates(id, name, description, style_json, cover_svg, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').run(
-      id, params.name, String(distilled.description ?? params.description ?? '').slice(0, 500), styleJson, null, userId, Date.now(), Date.now()
+      id, params.name, String(distilled.description ?? params.description ?? '').slice(0, 500), styleJson, coverSvg, userId, Date.now(), Date.now()
     );
     setStep(deps, taskId, 'pages', 'done', '已保存');
     setStep(deps, taskId, 'inspect', 'done', `模板「${params.name}」已入库`);

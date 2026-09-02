@@ -216,7 +216,8 @@ export async function buildApp(opts: AppOptions) {
       const buf = await file.toBuffer();
       if (buf.length > 20 * 1024 * 1024) return reply.code(400).send({ error: `${file.filename} 超过 20MB 上限` });
       const id = randomUUID();
-      const ext = file.filename.match(/\.(png|jpe?g|webp|gif)$/i)?.[0]?.toLowerCase() ?? '.png';
+      const ext = file.filename.match(/\.(png|jpe?g|webp|gif|pptx)$/i)?.[0]?.toLowerCase()
+        ?? (isPptx ? '.pptx' : '.png');
       const safe = `${id}${ext}`;
       writeFileSync(join(uploadDir, safe), buf);
       db.prepare('INSERT INTO uploads(id, user_id, filename, path, mime, size, created_at) VALUES (?,?,?,?,?,?,?)').run(
