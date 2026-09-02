@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, Loader2, Download, Check, Pencil, Trash2, Coins, AlertTriangle,
-  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2, FileEdit, PenSquare, ExternalLink,
+  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2, FileEdit, PenSquare, ExternalLink, LayoutGrid, MoveHorizontal,
 } from 'lucide-react';
 import { api, type TaskDetail, type StepProgress } from '../lib/api';
 
@@ -108,6 +108,7 @@ export default function TaskPage() {
   const [reditText, setReditText] = useState('');
   const [reditBusy, setReditBusy] = useState(false);
   const [editorRunning, setEditorRunning] = useState(false);
+  const [pagesView, setPagesView] = useState<'grid' | 'scroll'>('grid');
   const [editorBusy, setEditorBusy] = useState<null | 'start' | 'export'>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -302,6 +303,20 @@ export default function TaskPage() {
         return (
           <div>
             {task.slides.length > 0 ? (
+              <>
+              {/* 视图切换：网格 ↔ 横向滚动（单页更大） */}
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex rounded-lg bg-neutral-100 p-0.5 text-xs">
+                  <button className={`rounded-md px-3 py-1.5 transition-colors ${pagesView === 'grid' ? 'bg-white font-medium text-neutral-900 shadow-sm' : 'text-neutral-500'}`} onClick={() => setPagesView('grid')}>
+                    <LayoutGrid className="mr-1 inline h-3.5 w-3.5" />网格
+                  </button>
+                  <button className={`rounded-md px-3 py-1.5 transition-colors ${pagesView === 'scroll' ? 'bg-white font-medium text-neutral-900 shadow-sm' : 'text-neutral-500'}`} onClick={() => setPagesView('scroll')}>
+                    <MoveHorizontal className="mr-1 inline h-3.5 w-3.5" />横向滚动
+                  </button>
+                </div>
+                <span className="text-xs text-neutral-400">共 {task.slides.length} 页 · 点击页面可放大</span>
+              </div>
+              {pagesView === 'grid' ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {task.slides.map((s, idx) => {
                   const p = prog?.pages?.find((x) => x.id === `p${String(s.page).padStart(2, '0')}`);
@@ -320,6 +335,30 @@ export default function TaskPage() {
                   );
                 })}
               </div>
+              ) : (
+              /* 横向滚动视图：单页更大，左右滚动浏览 */
+              <div className="overflow-x-auto pb-3">
+                <div className="flex gap-5">
+                  {task.slides.map((s, idx) => {
+                    const p = prog?.pages?.find((x) => x.id === `p${String(s.page).padStart(2, '0')}`);
+                    return (
+                      <div key={s.page} className="w-[min(88vw,760px)] shrink-0">
+                        <SlidePreview url={s.svg} onClick={() => setLightbox({ index: idx })} />
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-neutral-400">
+                          <span className="rounded bg-neutral-900 px-1.5 py-0.5 font-mono text-[10px] text-white">{String(s.page).padStart(2, '0')}</span>
+                          {p?.status === 'ok' && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
+                          {p?.status === 'failed' && <XCircle className="h-3.5 w-3.5 text-red-500" />}
+                          {p?.retries ? <span className="rounded bg-amber-50 px-1 text-amber-600" title={(p.attempts ?? []).join('\n')}>重试{p.retries}</span> : null}
+                          {p?.title && <span className="truncate">{p.title}</span>}
+                        </div>
+                        {p?.error && <div className="mt-0.5 truncate text-[11px] text-red-400" title={p.error}>{p.error}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              )}
+              </>
             ) : (
               <div className="flex flex-col items-center py-10">
                 <Loader2 className="mb-3 h-7 w-7 animate-spin text-orange-500" />
@@ -447,6 +486,77 @@ export default function TaskPage() {
         </div>
       </div>
 
+      {/* 顶部操作条（完成后：下载 / 存为模板 / SVG 编辑器 / 继续编辑） */}
+      {task.status === 'done' && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-3">
+          <span className="mr-1 hidden items-center gap-1 text-xs text-green-600 sm:flex"><CheckCircle2 className="h-4 w-4" />完成 · {task.slides.length} 页 · {task.creditsCost} 积分</span>
+          {task.downloadUrl && (
+            <a href={task.downloadUrl} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3.5 py-2 text-xs font-medium text-white hover:bg-green-700 sm:text-sm">
+              <Download className="h-4 w-4" />下载 PPTX
+            </a>
+          )}
+          {task.slides.length > 0 && (
+            <button
+              className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3.5 py-2 text-xs text-neutral-700 transition hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 sm:text-sm"
+              onClick={async () => {
+                const name = activeSpec?.title || task.topic || '新模板';
+                await api.createTemplate({ name, style: activeSpec?.style, coverSvg: undefined });
+                alert('已保存为模板，可在「模板库」中管理');
+              }}
+            ><PenSquare className="h-4 w-4" />存为模板</button>
+          )}
+          {task.slides.length > 0 && !editorRunning && (
+            <button
+              className="flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3.5 py-2 text-xs text-neutral-700 transition hover:border-neutral-900 hover:bg-neutral-900 hover:text-white sm:text-sm"
+              disabled={!!editorBusy}
+              onClick={async () => {
+                setEditorBusy('start'); setError('');
+                try {
+                  const r = await api.editorStart(task.id);
+                  setEditorRunning(true);
+                  window.open(r.url, '_blank');
+                } catch (e: any) { setError(e.message); } finally { setEditorBusy(null); }
+              }}
+            >
+              {editorBusy === 'start' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+              {editorBusy === 'start' ? '启动中…' : 'SVG 编辑器'}
+            </button>
+          )}
+          {task.slides.length > 0 && editorRunning && (
+            <>
+              <button
+                className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3.5 py-2 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 sm:text-sm"
+                disabled={!!editorBusy}
+                onClick={async () => {
+                  setEditorBusy('export'); setError('');
+                  try {
+                    await api.editorReexport(task.id);
+                    alert('已重新导出，可下载新版本');
+                    load();
+                  } catch (e: any) { setError(e.message); } finally { setEditorBusy(null); }
+                }}
+              >
+                {editorBusy === 'export' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {editorBusy === 'export' ? '导出中…' : '重新导出'}
+              </button>
+              <a href={`/editor/${task.id}/`} target="_blank" className="flex items-center gap-1 rounded-lg border border-neutral-200 px-3 py-2 text-xs text-neutral-600 hover:bg-neutral-50 sm:text-sm">
+                <ExternalLink className="h-4 w-4" />编辑器窗口
+              </a>
+              <button
+                className="rounded-lg border border-neutral-200 px-2.5 py-2 text-xs text-neutral-400 hover:bg-red-50 hover:text-red-500"
+                onClick={async () => { await api.editorStop(task.id); setEditorRunning(false); }}
+              >停止</button>
+            </>
+          )}
+          {task.downloadUrl && (
+            <button
+              className="flex items-center gap-1.5 rounded-lg border border-orange-300 bg-orange-50 px-3.5 py-2 text-xs font-medium text-orange-700 transition hover:bg-orange-100 sm:text-sm"
+              onClick={() => { setReditOpen(true); setTimeout(() => document.getElementById('redit-box')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100); }}
+            ><FileEdit className="h-4 w-4" />继续编辑这份 PPT</button>
+          )}
+        </div>
+      )}
+
       {/* 大纲确认操作条 */}
       {task.status === 'awaiting_confirm' && activeSpec && (
         <div className="mb-4 flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -518,86 +628,19 @@ export default function TaskPage() {
 
       {task.status === 'done' && (
         <div className="mt-5 space-y-3">
-          <div className="flex items-center justify-between rounded-xl bg-green-50 px-5 py-3.5">
-            <div className="text-sm text-green-700">
-              完成！共 {task.slides.length} 页，消耗 {task.creditsCost} 积分。{task.error ? `（${task.error}）` : ''}
-              <button
-                className="ml-2 text-xs text-green-600 underline hover:text-green-700"
-                onClick={async () => {
-                  const name = activeSpec?.title || task.topic || '新模板';
-                  await api.createTemplate({ name, style: activeSpec?.style, coverSvg: undefined });
-                  alert('已保存为模板，可在「模板库」中管理');
-                }}
-              >存为模板</button>
-            </div>
-            {task.downloadUrl && (
-              <a href={task.downloadUrl} className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700">
-                <Download className="h-4 w-4" />下载 PPTX
-              </a>
-            )}
+          <div className="rounded-xl bg-green-50 px-5 py-3 text-sm text-green-700">
+            完成！共 {task.slides.length} 页，消耗 {task.creditsCost} 积分。{task.error ? `（${task.error}）` : ''}
+            <span className="ml-1 text-xs text-green-600/80">· 下载 / 存为模板 / SVG 编辑器 / 继续编辑 已移至页面顶部</span>
           </div>
-          {/* SVG 编辑器（可视化二次编辑） */}
-          {task.slides.length > 0 && (
-            <div className="rounded-xl border border-neutral-200 bg-white px-5 py-3.5">
-              <div className="flex items-center justify-between">
-                <div className="text-sm">
-                  <div className="flex items-center gap-1.5 font-medium"><PenSquare className="h-4 w-4 text-orange-500" />SVG 编辑器</div>
-                  <p className="mt-0.5 text-xs text-neutral-400">可视化编辑每页：点选元素、拖拽移动、直接改文字/颜色/坐标；改完点「重新导出」生成新 PPTX</p>
-                </div>
-                {!editorRunning ? (
-                  <button
-                    className="flex items-center gap-1.5 rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-900 disabled:opacity-50"
-                    disabled={!!editorBusy}
-                    onClick={async () => {
-                      setEditorBusy('start'); setError('');
-                      try {
-                        const r = await api.editorStart(task.id);
-                        setEditorRunning(true);
-                        window.open(r.url, '_blank');
-                      } catch (e: any) { setError(e.message); } finally { setEditorBusy(null); }
-                    }}
-                  >
-                    {editorBusy === 'start' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-                    {editorBusy === 'start' ? '启动中…' : '打开编辑器'}
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
-                      disabled={!!editorBusy}
-                      onClick={async () => {
-                        setEditorBusy('export'); setError('');
-                        try {
-                          const r = await api.editorReexport(task.id);
-                          alert('已重新导出，可下载新版本');
-                          load();
-                        } catch (e: any) { setError(e.message); } finally { setEditorBusy(null); }
-                      }}
-                    >
-                      {editorBusy === 'export' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                      {editorBusy === 'export' ? '导出中…' : '重新导出 PPTX'}
-                    </button>
-                    <a href={`/editor/${task.id}/`} target="_blank" className="flex items-center gap-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-600 hover:bg-neutral-50">
-                      <ExternalLink className="h-4 w-4" />编辑器窗口
-                    </a>
-                    <button
-                      className="rounded-lg border border-neutral-200 px-3 py-2 text-xs text-neutral-400 hover:bg-red-50 hover:text-red-500"
-                      onClick={async () => { await api.editorStop(task.id); setEditorRunning(false); }}
-                    >停止</button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          {/* 连续编辑 */}
+          {/* 连续编辑表单（按钮在顶部操作条，展开表单锚定在此） */}
           {task.downloadUrl && (
-            <div className="rounded-xl border border-neutral-200 bg-white px-5 py-3.5">
+            <div id="redit-box" className="rounded-xl border border-neutral-200 bg-white px-5 py-3.5">
               {!reditOpen ? (
                 <button
                   className="flex items-center gap-1.5 text-sm font-medium text-orange-600 hover:text-orange-700"
                   onClick={() => { setReditOpen(true); setReditText(''); }}
                 >
-                  <FileEdit className="h-4 w-4" />继续编辑这份 PPT
+                  <FileEdit className="h-4 w-4" />继续编辑这份 PPT（保留现有设计，只改指定页）
                 </button>
               ) : (
                 <div className="space-y-2.5">
