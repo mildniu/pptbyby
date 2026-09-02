@@ -1,0 +1,10 @@
+node_modules/
+pipeline/.venv/
+pipeline/projects/
+pipeline/.env
+data/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+*.local

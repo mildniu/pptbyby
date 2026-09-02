@@ -1,0 +1,22 @@
+{
+  "name": "pptbyby",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PPTByBy — AI 原生可编辑 PPT 生成平台（基于 ppt-master 管线）",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "test": "npm run test -w server",
+    "build": "npm run build -w web && npm run build -w server",
+    "build:web": "npm run build -w web"
+  },
+  "allowScripts": {
+    "better-sqlite3@11.10.0": true,
+    "esbuild@0.28.2": true,
+    "esbuild@0.25.12": true
+  }
+}

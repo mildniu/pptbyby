@@ -1,0 +1,12 @@
+{
+  "name": "ppt-master",
+  "script": "node_modules/.bin/tsx",
+  "args": "server/src/index.ts",
+  "cwd": "/home/ctyun/demo/ppt-master",
+  "env": {
+    "PORT": "3400",
+    "DATA_DIR": "/home/ctyun/demo/ppt-master/data"
+  },
+  "autorestart": true,
+  "max_memory_restart": "1G"
+}
