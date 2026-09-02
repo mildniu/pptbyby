@@ -55,10 +55,10 @@ export default function CreatePage() {
   const [mode, setMode] = useState('generate');
   const [topic, setTopic] = useState('');
   const [sourceText, setSourceText] = useState('');
-  const [pages, setPages] = useState('8');
+  const [pages, setPages] = useState('0');
   const [format, setFormat] = useState('ppt169');
   const [language, setLanguage] = useState('中文');
-  const [templateId, setTemplateId] = useState('');
+  const [templateId, setTemplateId] = useState('auto');
   const [research, setResearch] = useState(false);
   const [hasTavily, setHasTavily] = useState(false);
 
@@ -86,8 +86,9 @@ export default function CreatePage() {
 
   const isGenMode = mode === 'generate' || mode === 'quick';
 
-  // 模板选项（场景→品牌→风格）
+  // 模板选项：AI 适配置顶 + 我的 + 内置（场景→品牌→风格）
   const tplOptions: Option[] = [
+    { value: 'auto', label: 'AI 适配' },
     ...myTemplates.map((t) => ({ value: t.id, label: t.name, badge: '我的' })),
     ...(['deck', 'brand', 'style'] as const).flatMap((k) =>
       builtin.filter((b) => b.kind === k).map((b) => ({ value: b.id, label: b.name, badge: KIND_LABEL[k] }))),
@@ -101,7 +102,7 @@ export default function CreatePage() {
       if (isGenMode) {
         input = {
           mode, topic, sourceText, pages: Number(pages), format, language,
-          templateId: templateId || null,
+          templateId: templateId && templateId !== 'auto' ? templateId : null,
           assetIds: assets.items.map((a) => a.id),
           research: research && hasTavily,
         };
@@ -249,7 +250,7 @@ export default function CreatePage() {
                 <PillSelect value={pages} options={PAGE_OPTS} onChange={setPages} />
                 <PillSelect value={format} options={FORMAT_OPTS} onChange={setFormat} />
                 <PillSelect value={language} options={LANG_OPTS} onChange={setLanguage} />
-                <PillSelect value={templateId} options={tplOptions} onChange={setTemplateId} wide placeholder="自由设计" />
+                <PillSelect value={templateId} options={tplOptions} onChange={setTemplateId} wide />
               </>
             )}
             {!isGenMode && mode !== 'create_template' && (
