@@ -102,33 +102,55 @@ export interface ChatMessage {
   content: string;
 }
 
-/** OpenAI 兼容 chat 调用（走网关，模型用户自定义） */
+/** OpenAI 兼容 chat 调用（走网关，模型用户自定义）。
+ *  思考型模型（如 glm-5.3）面对大规范文档会把 max_tokens 全耗在 reasoning 上导致 content 为空，
+ *  因此默认携带 reasoning_effort: low；网关若拒绝该参数（400）则去掉后重试一次。 */
 export async function chatCompletion(
   cfg: GatewayConfig,
   messages: ChatMessage[],
-  opts: { maxTokens?: number; temperature?: number; timeoutMs?: number } = {},
+  opts: { maxTokens?: number; temperature?: number; timeoutMs?: number; reasoningEffort?: string | null } = {},
 ): Promise<string> {
   const model = cfg.chatModel;
   if (!cfg.baseUrl || !cfg.apiKey || !model) throw new Error('网关未配置完整（baseUrl / apiKey / chatModel）');
-  const res = await request(`${cfg.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+
+  const call = async (withReasoningEffort: boolean) => {
+    const payload: Record<string, unknown> = {
       model,
       messages,
       max_tokens: opts.maxTokens ?? 8192,
       temperature: opts.temperature ?? 0.7,
-    }),
-    headersTimeout: opts.timeoutMs ?? 600000,
-    bodyTimeout: opts.timeoutMs ?? 600000,
-  });
+    };
+    if (withReasoningEffort) payload.reasoning_effort = opts.reasoningEffort ?? 'low';
+    return request(`${cfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      headersTimeout: opts.timeoutMs ?? 600000,
+      bodyTimeout: opts.timeoutMs ?? 600000,
+    });
+  };
+
+  let res = await call(true);
+  if (res.statusCode === 400) {
+    // 网关可能不认识 reasoning_effort 参数，去掉重试一次
+    log('LLM', '携带 reasoning_effort 收到 400，去掉参数重试');
+    res = await call(false);
+  }
   const body = (await res.body.json()) as any;
   if (res.statusCode !== 200) {
     logError('LLM', `chat 调用失败 HTTP ${res.statusCode}`, body);
     throw new Error(`LLM 调用失败 (${res.statusCode}): ${JSON.stringify(body?.error ?? body).slice(0, 300)}`);
   }
-  const content = body?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content) throw new Error('LLM 返回为空');
+  const msg = body?.choices?.[0]?.message;
+  const content = msg?.content;
+  if (typeof content !== 'string' || !content) {
+    const reasoningLen = typeof msg?.reasoning_content === 'string' ? msg.reasoning_content.length : 0;
+    const finish = body?.choices?.[0]?.finish_reason;
+    if (reasoningLen > 0 && finish === 'length') {
+      throw new Error(`模型把 ${opts.maxTokens ?? 8192} max_tokens 全部耗在思考上（reasoning ${reasoningLen} 字符，content 为空）。请在网关设置中更换模型或降低思考强度`);
+    }
+    throw new Error('LLM 返回为空');
+  }
   return content;
 }
 

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Presentation } from 'lucide-react';
 import { api } from '../lib/api';
 import { useApp } from '../stores/app';
@@ -10,6 +11,13 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const checkAuth = useApp((s) => s.checkAuth);
+  const authed = useApp((s) => s.authed);
+  const nav = useNavigate();
+
+  // 已登录（含刚登录成功）跳转到创建页
+  useEffect(() => {
+    if (authed) nav('/create', { replace: true });
+  }, [authed, nav]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
