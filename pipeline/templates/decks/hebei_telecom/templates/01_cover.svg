@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+  width="1280" height="720" viewBox="0 0 1280 720"
+  data-pptx-master="hebei_telecom_brand_master" data-pptx-master-name="Hebei Telecom Brand Master"
+  data-pptx-layout="cover" data-pptx-layout-name="Cover"
+  font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">
+  <!-- Master Background -->
+  <rect id="brand-master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+  <image id="brand-master-footer-ribbon" x="0" y="520" width="1280" height="200"
+    href="../images/footer_ribbon.png" preserveAspectRatio="xMidYMid slice"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+  <image id="brand-master-skyline" x="720" y="440" width="460" height="180"
+    href="../images/skyline_bg.png" preserveAspectRatio="xMidYMid meet" opacity="0.85"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+
+  <!-- Top Logo & 5G Emblem -->
+  <image id="cover-logo" x="72" y="44" width="200" height="54" href="../images/logo.png"
+    preserveAspectRatio="xMinYMid meet" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cover-5g" x="1140" y="80" fill="#005BAC" font-size="34" font-weight="bold"
+    data-pptx-layer="layout" data-pptx-editable="false">5G<tspan fill="#C00000" font-size="28">+</tspan></text>
+
+  <!-- Title Cluster Slots -->
+  <g id="cover-title-slot" data-pptx-placeholder="title" data-pptx-bounds="72 240 1136 60">
+    <text id="cover-title-carrier" data-pptx-carrier="true" x="640" y="290" text-anchor="middle" fill="#111827" font-size="46" font-weight="bold">{{TITLE}}</text>
+  </g>
+  
+  <g id="cover-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="72 330 1136 60">
+    <text id="cover-subtitle-carrier" data-pptx-carrier="true" x="640" y="375" text-anchor="middle" fill="#C00000" font-size="42" font-weight="bold">{{SUBTITLE}}</text>
+  </g>
+
+  <!-- Meeting Meta Slot -->
+  <g id="cover-author-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="72 440 1136 40">
+    <text id="cover-author-carrier" data-pptx-carrier="true" x="640" y="470" text-anchor="middle" fill="#4B5563" font-size="20">{{AUTHOR_INFO}}</text>
+  </g>
+</svg>

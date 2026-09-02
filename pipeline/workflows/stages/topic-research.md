@@ -49,7 +49,7 @@ Default bundles only genuinely missing scope or research-boundary decisions into
 
 ## Step 2: Gather factual sources
 
-Use the search and fetch tools available in the research context; an isolated worker without them returns `blocked: web-tools-unavailable`. With no usable search/fetch context, pause and ask the user for authoritative URLs covering the gaps, then fetch each with `web_to_md.py <URL> -o projects/<research_slug>_web_sources/<source_slug>.md --no-images` (remote image links stay in the Markdown; nothing is downloaded).
+Use the search and fetch tools available in the research context (`tavily_search.py` is the built-in multi-key search engine: `python3 skills/ppt-master/scripts/tavily_search.py "<query>" --depth advanced --max-results 5`); an isolated worker without them returns `blocked: web-tools-unavailable`. With no usable search/fetch context, pause and ask the user for authoritative URLs covering the gaps, then fetch each with `web_to_md.py <URL> -o projects/<research_slug>_web_sources/<source_slug>.md --no-images` (remote image links stay in the Markdown; nothing is downloaded).
 
 Orient (map authoritative sources to the gaps) → deep fetch (read the highest-signal primary pages in full) → targeted fill (search only for gaps still unsupported). Prefer primary sources, official sites, institutional releases, standards, and original research; then authoritative reference works and academic sources; then reputable reporting; avoid unsourced reposts, unverifiable summaries, and stock-aggregator pages.
 

@@ -8,6 +8,7 @@ export interface GatewayConfig {
   apiKey: string;
   chatModel: string;
   imageModel: string;
+  tavilyKey: string;   // Tavily 搜索 API Key（tvly-…，可选）
   isCustom?: boolean; // 用户专属配置（免继承）
 }
 
@@ -23,15 +24,17 @@ export function getUserGatewayConfig(db: Db, userId: string, secretKey: string):
     encApiKey: getVal(userId, 'apiKey'),
     chatModel: getVal(userId, 'chatModel'),
     imageModel: getVal(userId, 'imageModel'),
+    tavilyKey: getVal(userId, 'tavilyKey'),
   };
   const hasOwn = !!(own.baseUrl && own.encApiKey);
 
-  let { baseUrl, encApiKey, chatModel, imageModel } = own;
+  let { baseUrl, encApiKey, chatModel, imageModel, tavilyKey } = own;
   if (userId !== 'admin' && !hasOwn) {
     if (!baseUrl) baseUrl = getVal('admin', 'baseUrl');
     if (!encApiKey) encApiKey = getVal('admin', 'apiKey');
     if (!chatModel) chatModel = getVal('admin', 'chatModel');
     if (!imageModel) imageModel = getVal('admin', 'imageModel');
+    if (!tavilyKey) tavilyKey = getVal('admin', 'tavilyKey');
   }
 
   return {
@@ -39,6 +42,7 @@ export function getUserGatewayConfig(db: Db, userId: string, secretKey: string):
     apiKey: encApiKey ? (decrypt(encApiKey, secretKey) ?? '') : '',
     chatModel: chatModel ?? '',
     imageModel: imageModel ?? '',
+    tavilyKey: tavilyKey ?? '',
     isCustom: userId === 'admin' || hasOwn,
   };
 }
@@ -47,7 +51,7 @@ export function saveUserGatewayConfig(
   db: Db,
   userId: string,
   secretKey: string,
-  input: Partial<Pick<GatewayConfig, 'baseUrl' | 'apiKey' | 'chatModel' | 'imageModel'>>,
+  input: Partial<Pick<GatewayConfig, 'baseUrl' | 'apiKey' | 'chatModel' | 'imageModel' | 'tavilyKey'>>,
 ): GatewayConfig {
   const cur = getUserGatewayConfig(db, userId, secretKey);
   const next = {
@@ -56,6 +60,8 @@ export function saveUserGatewayConfig(
       input.apiKey && input.apiKey.includes('*') ? cur.apiKey : (input.apiKey !== undefined ? input.apiKey : cur.apiKey).trim(),
     chatModel: (input.chatModel !== undefined ? input.chatModel : cur.chatModel).trim(),
     imageModel: (input.imageModel !== undefined ? input.imageModel : cur.imageModel).trim(),
+    tavilyKey:
+      input.tavilyKey && input.tavilyKey.includes('*') ? cur.tavilyKey : (input.tavilyKey !== undefined ? input.tavilyKey : cur.tavilyKey).trim(),
   };
 
   const upsert = db.prepare(
@@ -64,6 +70,7 @@ export function saveUserGatewayConfig(
   upsert.run(userId, 'baseUrl', next.baseUrl);
   upsert.run(userId, 'chatModel', next.chatModel);
   upsert.run(userId, 'imageModel', next.imageModel);
+  if (input.tavilyKey !== undefined) upsert.run(userId, 'tavilyKey', next.tavilyKey);
   if (input.apiKey && !input.apiKey.includes('*')) {
     upsert.run(userId, 'apiKey', next.apiKey ? encrypt(next.apiKey, secretKey) : '');
   } else if (input.apiKey === '') {
@@ -179,4 +186,52 @@ export async function generateImage(cfg: GatewayConfig, prompt: string, opts: { 
   const b64 = body?.data?.[0]?.b64_json;
   if (typeof b64 !== 'string' || !b64) throw new Error('生图返回为空');
   return b64;
+}
+
+// ---------------------------------------------------------------------------
+// Tavily 搜索（主题研究用，可选配置）
+// ---------------------------------------------------------------------------
+
+export interface TavilyResult {
+  title: string;
+  url: string;
+  content: string; // 摘要片段
+}
+
+/** Tavily search API：返回带摘要的搜索结果 */
+export async function tavilySearch(cfg: GatewayConfig, query: string, opts: { maxResults?: number } = {}): Promise<TavilyResult[]> {
+  if (!cfg.tavilyKey) throw new Error('未配置 Tavily API Key');
+  const res = await request('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: cfg.tavilyKey,
+      query,
+      max_results: opts.maxResults ?? 5,
+      include_answer: false,
+    }),
+    headersTimeout: 30000,
+    bodyTimeout: 30000,
+  });
+  const body = (await res.body.json()) as any;
+  if (res.statusCode !== 200) {
+    logError('TAVILY', `搜索失败 HTTP ${res.statusCode}`, body);
+    throw new Error(`Tavily 搜索失败 (${res.statusCode}): ${JSON.stringify(body?.detail ?? body).slice(0, 200)}`);
+  }
+  return (body?.results ?? []).map((r: any) => ({
+    title: String(r.title ?? ''),
+    url: String(r.url ?? ''),
+    content: String(r.content ?? ''),
+  }));
+}
+
+/** 测试 Tavily Key 是否有效 */
+export async function testTavilyKey(cfg: GatewayConfig): Promise<boolean> {
+  if (!cfg.tavilyKey) return false;
+  try {
+    const results = await tavilySearch(cfg, 'test', { maxResults: 1 });
+    return Array.isArray(results);
+  } catch {
+    return false;
+  }
 }

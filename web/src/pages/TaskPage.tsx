@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, Loader2, Download, Check, Pencil, Trash2, Coins, AlertTriangle,
-  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight,
+  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2,
 } from 'lucide-react';
 import { api, type TaskDetail, type StepProgress } from '../lib/api';
 
@@ -24,9 +24,10 @@ const STEP_ICONS: Record<string, any> = {
   export: Download,
 };
 
-function SlidePreview({ url }: { url: string }) {
+function useSvgText(url: string | null): string | null {
   const [svg, setSvg] = useState<string | null>(null);
   useEffect(() => {
+    if (!url) { setSvg(null); return; }
     let alive = true;
     fetch(url, { credentials: 'include' })
       .then((r) => (r.ok ? r.text() : Promise.reject()))
@@ -34,9 +35,46 @@ function SlidePreview({ url }: { url: string }) {
       .catch(() => alive && setSvg(null));
     return () => { alive = false; };
   }, [url]);
+  return svg;
+}
+
+/** 全屏查看器（点击页面放大） */
+function Lightbox({ url, title, onClose, onPrev, onNext }: { url: string; title: string; onClose: () => void; onPrev?: () => void; onNext?: () => void }) {
+  const svg = useSvgText(url);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') onPrev?.();
+      if (e.key === 'ArrowRight') onNext?.();
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose, onPrev, onNext]);
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-6 backdrop-blur-sm" onClick={onClose}>
+      <div className="mb-3 flex items-center justify-between text-white/80" onClick={(e) => e.stopPropagation()}>
+        <span className="text-sm">{title}</span>
+        <button className="rounded-lg p-1.5 hover:bg-white/10" onClick={onClose}><XCircle className="h-5 w-5" /></button>
+      </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center gap-4" onClick={(e) => e.stopPropagation()}>
+        {onPrev && <button className="rounded-full bg-white/10 p-3 text-white/70 hover:bg-white/20" onClick={onPrev}>‹</button>}
+        <div className="slide-frame max-h-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-2xl" style={{ aspectRatio: '16/9', width: 'min(100%, 90vw * 16 / 9 * 0.9)' }} dangerouslySetInnerHTML={{ __html: svg ?? '' }} />
+        {onNext && <button className="rounded-full bg-white/10 p-3 text-white/70 hover:bg-white/20" onClick={onNext}>›</button>}
+      </div>
+    </div>
+  );
+}
+
+function SlidePreview({ url, onClick }: { url: string; onClick: () => void }) {
+  const svg = useSvgText(url);
   if (!svg) return <div className="flex aspect-video items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 text-xs text-neutral-400">加载预览…</div>;
   return (
-    <div className="slide-frame aspect-video overflow-hidden rounded-lg border border-neutral-200 bg-white" dangerouslySetInnerHTML={{ __html: svg }} />
+    <div className="group relative cursor-zoom-in" onClick={onClick}>
+      <div className="slide-frame aspect-video overflow-hidden rounded-lg border border-neutral-200 bg-white" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-black/0 opacity-0 transition-all group-hover:bg-black/30 group-hover:opacity-100">
+        <Maximize2 className="h-6 w-6 text-white" />
+      </div>
+    </div>
   );
 }
 
@@ -64,6 +102,7 @@ export default function TaskPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editPages, setEditPages] = useState('');
   const [activeStep, setActiveStep] = useState<string>('pages');
+  const [lightbox, setLightbox] = useState<{ index: number } | null>(null);
   const pollRef = useRef<number | null>(null);
 
   const load = async () => {
@@ -256,11 +295,11 @@ export default function TaskPage() {
           <div>
             {task.slides.length > 0 ? (
               <div className="grid grid-cols-2 gap-4">
-                {task.slides.map((s) => {
+                {task.slides.map((s, idx) => {
                   const p = prog?.pages?.find((x) => x.id === `p${String(s.page).padStart(2, '0')}`);
                   return (
                     <div key={s.page}>
-                      <SlidePreview url={s.svg} />
+                      <SlidePreview url={s.svg} onClick={() => setLightbox({ index: idx })} />
                       <div className="mt-1.5 flex items-center gap-1.5 text-xs text-neutral-400">
                         第 {s.page} 页
                         {p?.status === 'ok' && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
@@ -292,7 +331,19 @@ export default function TaskPage() {
               if (!st || st.status === 'pending') return null;
               return (
                 <div className={`rounded-lg px-4 py-3 text-sm ${st.status === 'done' ? 'bg-green-50 text-green-700' : st.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-orange-700'}`}>
-                  {st.status === 'done' ? '✓ 质量终检通过，所有页面符合规范' : st.message}
+                  {st.status === 'done' ? `✓ ${st.message ?? '质量终检通过'}` : st.message}
+                </div>
+              );
+            })()}
+            {(() => {
+              const st = steps.find((s) => s.key === 'inspect');
+              if (!st?.detail?.length) return null;
+              return (
+                <div className="space-y-1.5 rounded-lg border border-neutral-100 bg-neutral-50 p-3">
+                  <div className="text-xs font-medium text-neutral-500">终检过程</div>
+                  {st.detail.map((d, i) => (
+                    <div key={i} className="rounded bg-white px-3 py-1.5 text-xs leading-relaxed text-neutral-500">{d}</div>
+                  ))}
                 </div>
               );
             })()}
@@ -481,6 +532,17 @@ export default function TaskPage() {
       )}
       {task.status === 'cancelled' && (
         <div className="mt-5 rounded-xl bg-neutral-100 px-5 py-3.5 text-sm text-neutral-500">任务已取消，预扣积分已退还。<Link to="/create" className="text-orange-600">再建一个</Link></div>
+      )}
+
+      {/* 全屏预览 */}
+      {lightbox && task.slides[lightbox.index] && (
+        <Lightbox
+          url={task.slides[lightbox.index].svg}
+          title={`第 ${task.slides[lightbox.index].page} 页${prog?.pages?.[lightbox.index]?.title ? ` · ${prog.pages[lightbox.index].title}` : ''}`}
+          onClose={() => setLightbox(null)}
+          onPrev={lightbox.index > 0 ? () => setLightbox({ index: lightbox.index - 1 }) : undefined}
+          onNext={lightbox.index < task.slides.length - 1 ? () => setLightbox({ index: lightbox.index + 1 }) : undefined}
+        />
       )}
     </div>
   );

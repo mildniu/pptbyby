@@ -7,7 +7,8 @@ import { basename, join, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Db } from './db.js';
 import { verifyPassword, signToken, verifyToken, maskKey } from './crypto.js';
-import { getUserGatewayConfig, saveUserGatewayConfig, clearUserGatewayConfig, listGatewayModels } from './gateway.js';
+import { getUserGatewayConfig, saveUserGatewayConfig, clearUserGatewayConfig, listGatewayModels, testTavilyKey } from './gateway.js';
+import { loadBuiltinTemplates, builtinSpecText } from './builtinTemplates.js';
 import { createTask, confirmTask, cancelTask, TASK_MODES, type TaskMode } from './orchestrator.js';
 import { log, logError } from './logger.js';
 
@@ -122,15 +123,17 @@ export async function buildApp(opts: AppOptions) {
       hasApiKey: !!cfg.apiKey,
       chatModel: cfg.chatModel,
       imageModel: cfg.imageModel,
+      tavilyKeyMasked: maskKey(cfg.tavilyKey),
+      hasTavilyKey: !!cfg.tavilyKey,
       isCustom: cfg.isCustom,
     };
   });
 
   app.put('/api/settings', async (req, reply) => {
     const auth = requireAuth(req, reply); if (!auth) return;
-    const { baseUrl, apiKey, chatModel, imageModel } = req.body as any;
-    const cfg = saveUserGatewayConfig(db, auth.uid, SECRET, { baseUrl, apiKey, chatModel, imageModel });
-    return { baseUrl: cfg.baseUrl, apiKeyMasked: maskKey(cfg.apiKey), chatModel: cfg.chatModel, imageModel: cfg.imageModel };
+    const { baseUrl, apiKey, chatModel, imageModel, tavilyKey } = req.body as any;
+    const cfg = saveUserGatewayConfig(db, auth.uid, SECRET, { baseUrl, apiKey, chatModel, imageModel, tavilyKey });
+    return { baseUrl: cfg.baseUrl, apiKeyMasked: maskKey(cfg.apiKey), chatModel: cfg.chatModel, imageModel: cfg.imageModel, tavilyKeyMasked: maskKey(cfg.tavilyKey) };
   });
 
   app.delete('/api/settings/custom', async (req, reply) => {
@@ -144,7 +147,15 @@ export async function buildApp(opts: AppOptions) {
     const cfg = getUserGatewayConfig(db, auth.uid, SECRET);
     if (!cfg.baseUrl || !cfg.apiKey) return { ok: false, error: '网关未配置' };
     const models = await listGatewayModels(cfg);
-    return { ok: true, models: models.slice(0, 200), chatModel: cfg.chatModel, imageModel: cfg.imageModel };
+    let tavilyOk: boolean | null = null;
+    if (cfg.tavilyKey) tavilyOk = await testTavilyKey(cfg);
+    return { ok: true, models: models.slice(0, 200), chatModel: cfg.chatModel, imageModel: cfg.imageModel, tavilyOk };
+  });
+
+  // ---------- 内置模板（vendor ppt-master 模板库）----------
+  app.get('/api/builtin-templates', async (req, reply) => {
+    const auth = requireAuth(req, reply); if (!auth) return;
+    return { templates: loadBuiltinTemplates() };
   });
 
   app.get('/api/models', async (req, reply) => {
@@ -400,6 +411,10 @@ export async function buildApp(opts: AppOptions) {
     } else if (raw.startsWith('projects/')) {
       root = join(opts.dataDir, 'projects');
       rel = raw.slice('projects/'.length);
+    } else if (raw.startsWith('pipeline/templates/') || raw.startsWith('pipeline/references/')) {
+      // 只读开放 pipeline 的模板参考图与原型（含 /media/pipeline/templates/... 形式）
+      root = join(import.meta.dirname, '..', '..', 'pipeline');
+      rel = raw.slice('pipeline/'.length);
     } else {
       return reply.code(403).send({ error: 'forbidden' });
     }

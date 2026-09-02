@@ -1,21 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Zap, ListChecks, Wand2, Paintbrush, FileEdit, LayoutTemplate, ImagePlay, Coins, UploadCloud, X, Loader2 } from 'lucide-react';
-import { api, type TemplateItem, type UploadItem } from '../lib/api';
+import { Zap, ListChecks, Wand2, Paintbrush, FileEdit, LayoutTemplate, ImagePlay, Coins, UploadCloud, X, Loader2, Globe } from 'lucide-react';
+import { api, type TemplateItem, type BuiltinTemplate, type UploadItem } from '../lib/api';
 
 const MODES = [
-  { id: 'generate', name: '生成 PPT', icon: ListChecks, desc: '主题/文档 → 确认大纲 → 逐页生成', ready: true },
-  { id: 'quick', name: '快速生成', icon: Zap, desc: '跳过确认，一步直出', ready: true },
-  { id: 'beautify', name: '美化 PPT', icon: Paintbrush, desc: '保持内容重排视觉', ready: false },
-  { id: 'edit_native', name: '编辑 PPT', icon: FileEdit, desc: '保留原设计改内容', ready: false },
-  { id: 'create_template', name: '创建模板', icon: LayoutTemplate, desc: '蒸馏品牌/版式模板', ready: false },
-  { id: 'image_to_pptx', name: '图片转 PPT', icon: ImagePlay, desc: '页面截图重建可编辑', ready: false },
+  { id: 'generate', name: '生成 PPT', icon: ListChecks, desc: '主题/文档 → 确认大纲 → 逐页生成可编辑 PPTX', ready: true },
+  { id: 'quick', name: '快速生成', icon: Zap, desc: '跳过确认，一步直出 PPTX', ready: true },
+  { id: 'beautify', name: '美化 PPT', icon: Paintbrush, desc: '上传 PPTX，保持页数/顺序/措辞重排视觉', ready: false },
+  { id: 'edit_native', name: '编辑 PPT', icon: FileEdit, desc: '上传 PPTX，保留原设计只改内容', ready: false },
+  { id: 'create_template', name: '创建模板', icon: LayoutTemplate, desc: '从参考稿蒸馏品牌/风格/版式模板', ready: false },
+  { id: 'image_to_pptx', name: '图片转 PPT', icon: ImagePlay, desc: '页面截图重建为可编辑 PPT', ready: false },
 ];
 
 const FORMATS = [
   { id: 'ppt169', name: '16:9 宽屏' },
   { id: 'ppt43', name: '4:3 传统' },
 ];
+
+const KIND_LABEL: Record<string, string> = { brand: '品牌', style: '风格', deck: '场景' };
 
 export default function CreatePage() {
   const nav = useNavigate();
@@ -27,15 +29,20 @@ export default function CreatePage() {
   const [styleHint, setStyleHint] = useState('');
   const [language, setLanguage] = useState('中文');
   const [templateId, setTemplateId] = useState('');
-  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [myTemplates, setMyTemplates] = useState<TemplateItem[]>([]);
+  const [builtin, setBuiltin] = useState<BuiltinTemplate[]>([]);
   const [assets, setAssets] = useState<UploadItem[]>([]);
+  const [research, setResearch] = useState(false);
+  const [hasTavily, setHasTavily] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    api.listTemplates().then((r) => setTemplates(r.templates)).catch(() => {});
+    api.listTemplates().then((r) => setMyTemplates(r.templates)).catch(() => {});
+    api.listBuiltinTemplates().then((r) => setBuiltin(r.templates)).catch(() => {});
+    api.getSettings().then((s) => setHasTavily(s.hasTavilyKey)).catch(() => {});
   }, []);
 
   const uploadFiles = async (files: FileList | File[]) => {
@@ -56,6 +63,7 @@ export default function CreatePage() {
         mode, topic, sourceText, pages, format, styleHint, language,
         templateId: templateId || null,
         assetIds: assets.map((a) => a.id),
+        research: research && hasTavily,
       });
       nav(`/task/${id}`);
     } catch (e: any) {
@@ -64,15 +72,19 @@ export default function CreatePage() {
     }
   };
 
-  const est = pages === 0 ? 'AI 决定' : `${pages}+`; // 每页 1 积分（AI 配图每张 +1）
+  const est = pages === 0 ? 'AI 决定' : `${pages}+`;
+  const builtinGroups = (['brand', 'style', 'deck'] as const).map((k) => ({
+    kind: k,
+    items: builtin.filter((b) => b.kind === k),
+  }));
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
       <h1 className="mb-1 text-2xl font-bold">创建 PPT</h1>
-      <p className="mb-5 text-sm text-neutral-500">AI 逐页手写矢量页面，导出为 PowerPoint 原生可编辑对象</p>
+      <p className="mb-4 text-sm text-neutral-500">AI 逐页手写矢量页面，导出为 PowerPoint 原生可编辑对象</p>
 
-      {/* 模式选择：紧凑小卡片 */}
-      <div className="mb-5 grid grid-cols-6 gap-2">
+      {/* 模式选择：超紧凑图标卡片 */}
+      <div className="mb-2 grid grid-cols-6 gap-1.5">
         {MODES.map((m) => {
           const Icon = m.icon;
           const active = mode === m.id;
@@ -82,19 +94,19 @@ export default function CreatePage() {
               onClick={() => m.ready && setMode(m.id)}
               disabled={!m.ready}
               title={m.ready ? m.desc : '即将上线'}
-              className={`group flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 transition-all ${
+              className={`flex flex-col items-center gap-1 rounded-lg border px-1 py-2 transition-all ${
                 active
-                  ? 'border-orange-400 bg-orange-50 shadow-sm ring-1 ring-orange-200'
-                  : 'border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50'
-              } ${!m.ready ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
+                  ? 'border-orange-400 bg-orange-50 ring-1 ring-orange-200'
+                  : 'border-neutral-200 bg-white hover:border-neutral-300'
+              } ${!m.ready ? 'cursor-not-allowed opacity-35' : 'cursor-pointer'}`}
             >
-              <Icon className={`h-5 w-5 ${active ? 'text-orange-600' : 'text-neutral-400 group-hover:text-neutral-500'}`} />
-              <span className={`text-xs ${active ? 'font-semibold text-orange-700' : 'text-neutral-600'}`}>{m.name}</span>
+              <Icon className={`h-4 w-4 ${active ? 'text-orange-600' : 'text-neutral-400'}`} />
+              <span className={`text-[11px] leading-none ${active ? 'font-semibold text-orange-700' : 'text-neutral-600'}`}>{m.name}</span>
             </button>
           );
         })}
       </div>
-      <p className="mb-5 -mt-2 text-xs text-neutral-400">{MODES.find((m) => m.id === mode)?.desc}</p>
+      <p className="mb-5 text-xs text-neutral-400">{MODES.find((m) => m.id === mode)?.desc}</p>
 
       <div className="space-y-4 rounded-2xl border border-neutral-200 bg-white p-6">
         <div>
@@ -115,13 +127,20 @@ export default function CreatePage() {
             value={sourceText}
             onChange={(e) => setSourceText(e.target.value)}
           />
+          {hasTavily && (
+            <label className="mt-2 flex cursor-pointer select-none items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-xs text-blue-700">
+              <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} className="accent-blue-500" />
+              <Globe className="h-3.5 w-3.5" />
+              联网研究（Tavily）：规划前先搜索最新资料补充事实，适合时效性主题
+            </label>
+          )}
         </div>
 
         {/* 素材上传 */}
         <div>
           <label className="mb-1.5 block text-sm font-medium">图片素材 <span className="font-normal text-neutral-400">（可选，最多 10 张，AI 会参考使用）</span></label>
           <div
-            className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-4 py-3 text-sm text-neutral-500 hover:border-orange-300 hover:bg-orange-50/40"
+            className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-500 hover:border-orange-300 hover:bg-orange-50/40"
             onClick={() => fileRef.current?.click()}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); uploadFiles(e.dataTransfer.files); }}
@@ -188,10 +207,35 @@ export default function CreatePage() {
               onChange={(e) => setTemplateId(e.target.value)}
             >
               <option value="">自由设计</option>
-              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {myTemplates.length > 0 && (
+                <optgroup label="我的模板">
+                  {myTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </optgroup>
+              )}
+              {builtinGroups.map((g) =>
+                g.items.length > 0 ? (
+                  <optgroup key={g.kind} label={`内置·${KIND_LABEL[g.kind]}`}>
+                    {g.items.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </optgroup>
+                ) : null
+              )}
             </select>
           </div>
         </div>
+
+        {templateId && (() => {
+          const all: (TemplateItem | BuiltinTemplate)[] = [...myTemplates, ...builtin];
+          const t = all.find((x) => x.id === templateId);
+          if (!t) return null;
+          const summary = 'summary' in t ? t.summary : (t as TemplateItem).description;
+          const color = 'primaryColor' in t ? (t as BuiltinTemplate).primaryColor : (t.style as any).palette?.[0];
+          return (
+            <div className="flex items-start gap-2 rounded-lg bg-orange-50/60 px-3 py-2 text-xs text-neutral-600">
+              {color && <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full border border-neutral-300" style={{ background: color }} />}
+              <span>{summary || '已选择模板，生成时将严格遵循其风格规范'}</span>
+            </div>
+          );
+        })()}
 
         <div>
           <label className="mb-1.5 block text-sm font-medium">风格偏好 <span className="font-normal text-neutral-400">（可选，选择模板后由模板主导）</span></label>

@@ -14,7 +14,7 @@ export interface PipelineResult {
 }
 
 /** 运行 skill 内的 Python 脚本（确定性管线：checker / finalizer / 转换器等） */
-export function runPython(script: string, args: string[], opts: { timeoutMs?: number; cwd?: string } = {}): Promise<PipelineResult> {
+export function runPython(script: string, args: string[], opts: { timeoutMs?: number; cwd?: string; env?: Record<string, string> } = {}): Promise<PipelineResult> {
   return new Promise((resolve, reject) => {
     if (!existsSync(PY)) {
       return reject(new Error(`Python venv 不存在: ${PY}，请先安装 pipeline 依赖`));
@@ -25,7 +25,7 @@ export function runPython(script: string, args: string[], opts: { timeoutMs?: nu
     }
     const proc = spawn(PY, [scriptPath, ...args], {
       cwd: opts.cwd ?? SKILL_DIR,
-      env: { ...process.env, PYTHONUNBUFFERED: '1', LANG: 'C.UTF-8' },
+      env: { ...process.env, PYTHONUNBUFFERED: '1', LANG: 'C.UTF-8', ...opts.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

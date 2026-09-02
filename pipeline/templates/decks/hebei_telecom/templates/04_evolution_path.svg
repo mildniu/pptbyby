@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+  width="1280" height="720" viewBox="0 0 1280 720"
+  data-pptx-master="hebei_telecom_content_master" data-pptx-master-name="Hebei Telecom Content Master"
+  data-pptx-layout="step_evolution" data-pptx-layout-name="Step Evolution"
+  font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">
+  <!-- Master Chrome -->
+  <rect id="content-master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+  <image id="content-master-logo" x="72" y="38" width="180" height="48" href="../images/logo.png"
+    preserveAspectRatio="xMinYMid meet" data-pptx-layer="master" data-pptx-editable="false"/>
+  <text id="content-master-5g" x="1140" y="74" fill="#005BAC" font-size="30" font-weight="bold"
+    data-pptx-layer="master" data-pptx-editable="false">5G<tspan fill="#C00000" font-size="24">+</tspan></text>
+  <line id="content-master-rule" x1="72" y1="104" x2="1208" y2="104" stroke="#F1F5F9" stroke-width="1.5"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+
+  <!-- Title Slot -->
+  <g id="evolution-title-slot" data-pptx-placeholder="title" data-pptx-bounds="280 44 800 40">
+    <text id="evolution-title-carrier" data-pptx-carrier="true" x="280" y="74" fill="#C00000" font-size="28" font-weight="bold">{{PAGE_TITLE}}</text>
+  </g>
+
+  <!-- Subtitle Summary Slot -->
+  <g id="evolution-header-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="72 100 1136 60">
+    <text id="evolution-header-carrier" data-pptx-carrier="true" x="72" y="120" fill="#991B1B" font-size="16" font-weight="bold">
+      <tspan x="72" dy="0">{{HEADER_LINE_1}}</tspan>
+      <tspan x="72" dy="26">{{HEADER_LINE_2}}</tspan>
+    </text>
+  </g>
+
+  <!-- Step Evolution Body Slot -->
+  <g id="evolution-steps-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="72 180 1136 440">
+    <text id="evolution-steps-carrier" data-pptx-carrier="true" x="100" y="240" fill="#1F2937" font-size="15">
+      {{EVOLUTION_STEPS_CONTENT}}
+    </text>
+  </g>
+
+  <!-- Bottom Callout Line Slot -->
+  <g id="evolution-callout-slot" data-pptx-placeholder="footer" data-pptx-idx="3" data-pptx-bounds="72 626 1136 42">
+    <text id="evolution-callout-carrier" data-pptx-carrier="true" x="640" y="652" text-anchor="middle" fill="#991B1B" font-size="15" font-weight="bold">{{CALLOUT_TEXT}}</text>
+  </g>
+
+  <!-- Slide Number Slot -->
+  <g id="evolution-slide-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="4" data-pptx-bounds="1128 670 80 28">
+    <text id="evolution-slide-number-carrier" data-pptx-carrier="true" x="1208" y="694" text-anchor="end" fill="#9CA3AF" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" font-size="14">{{PAGE_NUM}}</text>
+  </g>
+</svg>

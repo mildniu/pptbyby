@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+  width="1280" height="720" viewBox="0 0 1280 720"
+  data-pptx-master="hebei_telecom_content_master" data-pptx-master-name="Hebei Telecom Content Master"
+  data-pptx-layout="dashboard_8grid" data-pptx-layout-name="8-Grid Dashboard"
+  font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">
+  <!-- Master Chrome -->
+  <rect id="content-master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+  <image id="content-master-logo" x="72" y="38" width="180" height="48" href="../images/logo.png"
+    preserveAspectRatio="xMinYMid meet" data-pptx-layer="master" data-pptx-editable="false"/>
+  <text id="content-master-5g" x="1140" y="74" fill="#005BAC" font-size="30" font-weight="bold"
+    data-pptx-layer="master" data-pptx-editable="false">5G<tspan fill="#C00000" font-size="24">+</tspan></text>
+  <line id="content-master-rule" x1="72" y1="104" x2="1208" y2="104" stroke="#F1F5F9" stroke-width="1.5"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+
+  <!-- Layout Summary Banner Background -->
+  <rect id="review-banner-bg" x="72" y="104" width="1136" height="44" rx="8" fill="#FEF2F2" stroke="#FECACA" stroke-width="1"
+    data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <!-- Layout 8 Grid Cards Frame -->
+  <rect id="card-1-bg" x="72" y="166" width="266" height="236" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="card-1-tab" d="M72 176 Q72 166 82 166 L328 166 Q338 166 338 176 L338 214 L72 214 Z" fill="#C00000" data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <rect id="card-2-bg" x="72" y="420" width="266" height="236" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="card-2-tab" d="M72 430 Q72 420 82 420 L328 420 Q338 420 338 430 L338 468 L72 468 Z" fill="#C00000" data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <rect id="card-3-bg" x="362" y="166" width="266" height="236" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="card-3-tab" d="M362 176 Q362 166 372 166 L618 166 Q628 166 628 176 L628 214 L362 214 Z" fill="#C00000" data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <rect id="card-4-bg" x="362" y="420" width="266" height="236" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="card-4-tab" d="M362 430 Q362 420 82 420 L618 420 Q628 420 628 430 L628 468 L362 468 Z" fill="#C00000" data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <rect id="card-5-bg" x="652" y="166" width="266" height="236" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="card-5-tab" d="M652 176 Q652 166 662 166 L908 166 Q918 166 918 176 L918 214 L652 214 Z" fill="#C00000" data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <rect id="card-6-bg" x="652" y="420" width="266" height="236" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="card-6-tab" d="M652 430 Q652 420 662 420 L908 420 Q918 420 918 430 L918 468 L652 468 Z" fill="#C00000" data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <rect id="card-7-bg" x="942" y="166" width="266" height="236" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="card-7-tab" d="M942 176 Q942 166 952 166 L1198 166 Q1208 166 1208 176 L1208 214 L942 214 Z" fill="#C00000" data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <rect id="card-8-bg" x="942" y="420" width="266" height="236" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1.5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="card-8-tab" d="M942 430 Q942 420 952 420 L1198 420 Q1208 420 1208 430 L1208 468 L942 468 Z" fill="#C00000" data-pptx-layer="layout" data-pptx-editable="false"/>
+
+  <!-- Title Slot -->
+  <g id="review-title-slot" data-pptx-placeholder="title" data-pptx-bounds="280 44 800 40">
+    <text id="review-title-carrier" data-pptx-carrier="true" x="280" y="74" fill="#C00000" font-size="28" font-weight="bold">{{PAGE_TITLE}}</text>
+  </g>
+
+  <!-- Summary Banner Text Slot -->
+  <g id="review-banner-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="72 104 1136 44">
+    <text id="review-banner-carrier" data-pptx-carrier="true" x="640" y="132" text-anchor="middle" fill="#991B1B" font-size="16" font-weight="bold">{{BANNER_TEXT}}</text>
+  </g>
+
+  <!-- Content Slot -->
+  <g id="review-content-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="72 166 1136 490">
+    <text id="review-content-carrier" data-pptx-carrier="true" x="90" y="196" fill="#374151" font-size="13">
+      {{REVIEW_ITEMS_CONTENT}}
+    </text>
+  </g>
+
+  <!-- Footer Slot -->
+  <g id="review-slide-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="3" data-pptx-bounds="1128 670 80 28">
+    <text id="review-slide-number-carrier" data-pptx-carrier="true" x="1208" y="694" text-anchor="end" fill="#9CA3AF" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" font-size="14">{{PAGE_NUM}}</text>
+  </g>
+</svg>

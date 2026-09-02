@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Plus, Pencil, Trash2, X, Palette, Type, StickyNote } from 'lucide-react';
-import { api, type TemplateItem } from '../lib/api';
+import { Loader2, Plus, Pencil, Trash2, X, Palette, Type, StickyNote, BookOpen, Maximize2 } from 'lucide-react';
+import { api, type TemplateItem, type BuiltinTemplate } from '../lib/api';
 
 interface TemplateForm {
   name: string;
@@ -12,6 +12,12 @@ interface TemplateForm {
 }
 
 const EMPTY_FORM: TemplateForm = { name: '', description: '', mode: '', paletteText: '', typography: '', notes: '' };
+const KIND_LABEL: Record<string, string> = { brand: '品牌', style: '风格', deck: '场景' };
+const KIND_DESC: Record<string, string> = {
+  brand: '品牌识别：色板 / 字体 / 语气规范',
+  style: '叙事方法：页面角色 / 论证结构 / 图表纪律',
+  deck: '完整场景：页面原型 + 品牌素材 + 规范',
+};
 
 function formFromTpl(t: TemplateItem): TemplateForm {
   return {
@@ -33,21 +39,68 @@ function styleFromForm(f: TemplateForm) {
   };
 }
 
+/** 内置模板卡片（只读，含参考图） */
+function BuiltinCard({ t, onPreview }: { t: BuiltinTemplate; onPreview: (url: string, title: string) => void }) {
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-5">
+      <div className="mb-2 flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{t.name}</span>
+            <span className={`rounded px-1.5 py-0.5 text-[10px] ${
+              t.kind === 'brand' ? 'bg-purple-50 text-purple-600' : t.kind === 'style' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+            }`}>{KIND_LABEL[t.kind]}</span>
+          </div>
+          <div className="mt-1 max-w-md text-xs leading-relaxed text-neutral-400" title={t.summary}>{t.summary}</div>
+        </div>
+        {t.primaryColor && (
+          <span className="mt-1 flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-500">
+            <span className="h-3 w-3 rounded-full border border-neutral-300" style={{ background: t.primaryColor }} />{t.primaryColor}
+          </span>
+        )}
+      </div>
+      {t.refImages.length > 0 && (
+        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+          {t.refImages.map((img) => (
+            <div key={img.url} className="group relative h-20 w-32 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50"
+              onClick={() => onPreview(img.url, `${t.name} · ${img.name}`)}>
+              {img.url.endsWith('.svg') ? (
+                <img src={img.url} alt={img.name} className="h-full w-full object-contain" />
+              ) : (
+                <img src={img.url} alt={img.name} className="h-full w-full object-cover" />
+              )}
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/20 group-hover:opacity-100">
+                <Maximize2 className="h-4 w-4 text-white" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<TemplateItem[] | null>(null);
+  const [builtin, setBuiltin] = useState<BuiltinTemplate[]>([]);
   const [editing, setEditing] = useState<{ id: string | null; form: TemplateForm } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
+  const [tab, setTab] = useState<'builtin' | 'mine'>('builtin');
 
   const load = () => api.listTemplates().then((r) => setTemplates(r.templates)).catch(() => setTemplates([]));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    api.listBuiltinTemplates().then((r) => setBuiltin(r.templates)).catch(() => {});
+  }, []);
 
   const save = async () => {
     if (!editing) return;
     const f = editing.form;
     if (!f.name.trim()) { setError('模板名称必填'); return; }
-    const palette = f.paletteText.split(/[,，\s]+/).filter((s) => s && !/^#[0-9A-Fa-f]{6}$/.test(s));
-    if (palette.length) { setError(`调色板含非法颜色：${palette.join(' ')}（需 #RRGGBB 格式）`); return; }
+    const bad = f.paletteText.split(/[,，\s]+/).filter((s) => s && !/^#[0-9A-Fa-f]{6}$/.test(s));
+    if (bad.length) { setError(`调色板含非法颜色：${bad.join(' ')}（需 #RRGGBB 格式）`); return; }
     setError('');
     setBusy(true);
     try {
@@ -55,22 +108,37 @@ export default function TemplatesPage() {
       if (editing.id) await api.updateTemplate(editing.id, { name: f.name, description: f.description, style });
       else await api.createTemplate({ name: f.name, description: f.description, style });
       setEditing(null);
+      setTab('mine');
       await load();
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
+  const builtinGroups = (['brand', 'style', 'deck'] as const).map((k) => ({ kind: k, items: builtin.filter((b) => b.kind === k) }));
+
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">模板库</h1>
-          <p className="mt-0.5 text-sm text-neutral-500">保存风格规范（视觉模式 / 配色 / 字阶 / 一致性说明），创建 PPT 时可直接套用</p>
+          <p className="mt-0.5 text-sm text-neutral-500">内置 34 个专业模板（品牌 / 风格 / 场景），也可自建</p>
         </div>
         <button
           className="flex items-center gap-1.5 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700"
-          onClick={() => { setEditing({ id: null, form: { ...EMPTY_FORM } }); setError(''); }}
+          onClick={() => { setEditing({ id: null, form: { ...EMPTY_FORM } }); setError(''); setTab('mine'); }}
         >
           <Plus className="h-4 w-4" />新建模板
+        </button>
+      </div>
+
+      {/* Tab */}
+      <div className="mb-4 flex gap-1 rounded-xl bg-neutral-100 p-1 text-sm">
+        <button className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 transition-colors ${tab === 'builtin' ? 'bg-white font-medium shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+          onClick={() => setTab('builtin')}>
+          <BookOpen className="h-4 w-4" />内置模板（{builtin.length}）
+        </button>
+        <button className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 transition-colors ${tab === 'mine' ? 'bg-white font-medium shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}
+          onClick={() => setTab('mine')}>
+          <Palette className="h-4 w-4" />我的模板（{templates?.length ?? 0}）
         </button>
       </div>
 
@@ -131,48 +199,84 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {/* 模板列表 */}
-      {!templates ? (
-        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-neutral-300" /></div>
-      ) : templates.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-neutral-200 py-16 text-center text-sm text-neutral-400">
-          还没有模板。点击右上角「新建模板」，或在完成的任务里点「存为模板」。
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-4">
-          {templates.map((t) => (
-            <div key={t.id} className="rounded-2xl border border-neutral-200 bg-white p-5">
-              <div className="mb-2 flex items-start justify-between">
-                <div>
-                  <div className="font-semibold">{t.name}</div>
-                  <div className="mt-0.5 text-xs text-neutral-400">{t.description || t.style?.mode || '—'} · {t.created_by_name ?? (t.created_by === 'admin' ? 'admin' : '用户')} 创建</div>
+      {/* 内置模板 */}
+      {tab === 'builtin' && (
+        !builtin.length ? (
+          <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-neutral-300" /></div>
+        ) : (
+          <div className="space-y-6">
+            {builtinGroups.map((g) => g.items.length > 0 && (
+              <div key={g.kind}>
+                <div className="mb-2.5 flex items-baseline gap-2">
+                  <h2 className="text-sm font-semibold">{KIND_LABEL[g.kind]}模板</h2>
+                  <span className="text-xs text-neutral-400">{KIND_DESC[g.kind]} · {g.items.length} 个</span>
                 </div>
-                <div className="flex gap-1">
-                  <button className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600" title="编辑"
-                    onClick={() => { setEditing({ id: t.id, form: formFromTpl(t) }); setError(''); }}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button className="rounded-md p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-500" title="删除"
-                    onClick={async () => { if (confirm(`删除模板「${t.name}」？`)) { await api.deleteTemplate(t.id); load(); } }}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                <div className="grid grid-cols-1 gap-3">
+                  {g.items.map((t) => <BuiltinCard key={t.id} t={t} onPreview={(url, title) => setPreview({ url, title })} />)}
                 </div>
               </div>
-              <div className="mb-3 flex flex-wrap items-center gap-1.5">
-                {(t.style?.palette ?? []).length ? (
-                  t.style.palette.map((c) => (
-                    <span key={c} className="flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-500">
-                      <span className="h-3 w-3 rounded-full border border-neutral-300" style={{ background: c }} />{c}
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-xs text-neutral-300">未设置调色板</span>
-                )}
+            ))}
+          </div>
+        )
+      )}
+
+      {/* 我的模板 */}
+      {tab === 'mine' && (
+        !templates ? (
+          <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-neutral-300" /></div>
+        ) : templates.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-neutral-200 py-16 text-center text-sm text-neutral-400">
+            还没有自定义模板。点击右上角「新建模板」，或在完成的任务里点「存为模板」。
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            {templates.map((t) => (
+              <div key={t.id} className="rounded-2xl border border-neutral-200 bg-white p-5">
+                <div className="mb-2 flex items-start justify-between">
+                  <div>
+                    <div className="font-semibold">{t.name}</div>
+                    <div className="mt-0.5 text-xs text-neutral-400">{t.description || t.style?.mode || '—'}</div>
+                  </div>
+                  <div className="flex gap-1">
+                    <button className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600" title="编辑"
+                      onClick={() => { setEditing({ id: t.id, form: formFromTpl(t) }); setError(''); }}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button className="rounded-md p-1.5 text-neutral-400 hover:bg-red-50 hover:text-red-500" title="删除"
+                      onClick={async () => { if (confirm(`删除模板「${t.name}」？`)) { await api.deleteTemplate(t.id); load(); } }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                  {(t.style?.palette ?? []).length ? (
+                    t.style.palette.map((c) => (
+                      <span key={c} className="flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-500">
+                        <span className="h-3 w-3 rounded-full border border-neutral-300" style={{ background: c }} />{c}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-neutral-300">未设置调色板</span>
+                  )}
+                </div>
+                {t.style?.typography && <div className="text-xs leading-relaxed text-neutral-500">{t.style.typography}</div>}
+                {t.style?.notes && <div className="mt-1 text-xs leading-relaxed text-neutral-400">{t.style.notes}</div>}
               </div>
-              {t.style?.typography && <div className="text-xs leading-relaxed text-neutral-500">{t.style.typography}</div>}
-              {t.style?.notes && <div className="mt-1 text-xs leading-relaxed text-neutral-400">{t.style.notes}</div>}
-            </div>
-          ))}
+            ))}
+          </div>
+        )
+      )}
+
+      {/* 参考图预览 */}
+      {preview && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-6 backdrop-blur-sm" onClick={() => setPreview(null)}>
+          <div className="mb-3 flex items-center justify-between text-white/80">
+            <span className="text-sm">{preview.title}</span>
+            <button className="rounded-lg p-1.5 hover:bg-white/10" onClick={() => setPreview(null)}><X className="h-5 w-5" /></button>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <img src={preview.url} alt={preview.title} className="max-h-full max-w-full rounded-xl bg-white p-2 shadow-2xl" />
+          </div>
         </div>
       )}
     </div>

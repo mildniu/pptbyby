@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFi
 import { join, basename } from 'node:path';
 import type { Db } from './db.js';
 import { getUserGatewayConfig, chatCompletion, generateImage, type GatewayConfig, type ChatMessage } from './gateway.js';
+import { builtinSpecText } from './builtinTemplates.js';
 import { runPython, qualityCheck, initProject, SKILL_DIR } from './pipeline.js';
 import { quoteTask, CREDITS_PER_PAGE, CREDITS_PER_IMAGE } from './credits.js';
 import { log, logError } from './logger.js';
@@ -168,6 +169,8 @@ function setStep(deps: OrchestratorDeps, id: string, key: StepKey, status: StepP
   if (status === 'done' || status === 'failed' || status === 'skipped') s.endedAt = Date.now();
   s.status = status;
   if (message !== undefined) s.message = message;
+  // 同步顶层 message 给进度条（running 时展示当前步骤的实时消息）
+  if (status === 'running' && message !== undefined) p.message = message;
   setProgress(deps, id, p);
 }
 
@@ -305,12 +308,20 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
   planStep.startedAt = Date.now();
   setProgress(deps, taskId, progress);
 
-  // 模板风格约束（若有）
+  // 模板风格约束（自定义模板 或 vendor 内置模板 design_spec 全文）
   let templateConstraint = '';
   if (params.templateId) {
-    const tpl = deps.db.prepare('SELECT * FROM templates WHERE id=?').get(params.templateId) as any;
-    if (tpl) {
-      templateConstraint = `\n模板风格约束（必须严格遵循）：${tpl.name} — ${JSON.stringify(JSON.parse(tpl.style_json || '{}'))}`;
+    if (String(params.templateId).startsWith('builtin:')) {
+      // 内置模板（brands / styles / decks）：注入完整 design_spec.md
+      const specText = builtinSpecText(String(params.templateId));
+      if (specText) {
+        templateConstraint = `\n模板规范（必须严格遵循以下 design_spec 全文）：\n<template_spec>\n${specText}\n</template_spec>`;
+      }
+    } else {
+      const tpl = deps.db.prepare('SELECT * FROM templates WHERE id=?').get(params.templateId) as any;
+      if (tpl) {
+        templateConstraint = `\n模板风格约束（必须严格遵循）：${tpl.name} — ${JSON.stringify(JSON.parse(tpl.style_json || '{}'))}`;
+      }
     }
   }
 
@@ -324,10 +335,41 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
     }
   }
 
+  // Tavily 主题研究（可选）：主题型任务且用户开启时，先搜索补充事实
+  let researchNote = '';
+  if (params.research && cfg.tavilyKey && t.topic) {
+    const p0 = currentProgress(deps, taskId);
+    const st0 = p0.steps.find((x) => x.key === 'plan');
+    if (st0) st0.message = '正在联网搜索补充资料…';
+    setProgress(deps, taskId, p0);
+    try {
+      // 官方 tavily_search.py（多 Key 池 + failover），Key 经环境变量传入
+      const r = await runPython('tavily_search.py', [t.topic.slice(0, 200), '--depth', 'advanced', '--max-results', '6', '--json'], {
+        timeoutMs: 90000,
+        env: { TAVILY_API_KEYS: cfg.tavilyKey },
+      });
+      if (r.code === 0) {
+        let results: any[] = [];
+        try { results = JSON.parse(r.stdout.slice(r.stdout.indexOf('['), r.stdout.lastIndexOf(']') + 1)) ?? []; } catch { /* keep [] */ }
+        if (results.length) {
+          researchNote = `\n联网研究补充（Tavily，供参考，优先级低于用户材料）：\n${results
+            .map((x: any) => `- ${x.title ?? ''}（${x.url ?? ''}）：${String(x.content ?? '').slice(0, 300)}`)
+            .join('\n')}`;
+          log('ORCH', `任务 ${taskId} Tavily 研究完成，${results.length} 条结果`);
+        }
+      } else {
+        logError('ORCH', `任务 ${taskId} Tavily 脚本失败`, r.stderr.slice(0, 200));
+      }
+    } catch (e: any) {
+      logError('ORCH', `任务 ${taskId} Tavily 研究失败（继续无搜索规划）`, e?.message);
+    }
+  }
+
   const pagesReq = Number(params.pages) > 0 ? `${Number(params.pages)} 页` : '页数由你决定（根据内容充实程度，6-12 页）';
   const userMsg = [
     `主题：${t.topic || '（见源材料）'}`,
     t.source_text ? `\n源材料：\n${t.source_text.slice(0, 60000)}` : '',
+    researchNote,
     `\n要求：${pagesReq}，格式 ${params.format ?? 'ppt169'}，风格偏好：${params.styleHint || '自由发挥'}`,
     templateConstraint,
     assetNote,
@@ -612,17 +654,29 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
     // 3) 终检（quick-generate 契约：--stage final 必须过），失败则带错误修复并复检，最多 2 轮
     setStep(deps, taskId, 'inspect', 'running', '质量终检…');
     let finalCheck = await qualityCheck(projectPath, 'final');
+    let inspectLog: string[] = [];
     for (let round = 0; round < 2 && !finalCheck.ok; round++) {
+      const issues = summarizeCheckErrors(finalCheck).slice(0, 300);
+      inspectLog.push(`第 ${round + 1} 轮终检发现 ${countCheckErrors(finalCheck)} 个错误：${issues}`);
       log('ORCH', `任务 ${taskId} 终检未通过（第 ${round + 1} 轮修复）`);
-      setStep(deps, taskId, 'inspect', 'running', `终检未过，第 ${round + 1} 轮修复…`);
-      await repairRound(deps, taskId, cfg, spec, svgDir, pagesProgress, finalCheck);
+      setStep(deps, taskId, 'inspect', 'running', `终检发现 ${countCheckErrors(finalCheck)} 个错误，第 ${round + 1} 轮修复…（详情见质检面板）`);
+      const repaired = await repairRound(deps, taskId, cfg, spec, svgDir, pagesProgress, finalCheck);
+      inspectLog.push(`修复了 ${repaired} 页，复检…`);
       finalCheck = await qualityCheck(projectPath, 'final');
     }
     if (!finalCheck.ok) {
       setStep(deps, taskId, 'inspect', 'failed', summarizeCheckErrors(finalCheck).slice(0, 200));
       throw new Error(`终检未通过：${summarizeCheckErrors(finalCheck).slice(0, 500)}`);
     }
-    setStep(deps, taskId, 'inspect', 'done', '质量终检通过');
+    inspectLog.push('全部通过');
+    // 把终检详情挂在 inspect 步骤的 detail 里（前端展开显示）
+    {
+      const p = currentProgress(deps, taskId);
+      const st = p.steps.find((x) => x.key === 'inspect');
+      if (st) (st as any).detail = inspectLog;
+      setProgress(deps, taskId, p);
+    }
+    setStep(deps, taskId, 'inspect', 'done', inspectLog.length > 1 ? `通过（经历 ${inspectLog.length - 1} 轮修复）` : '一次通过');
 
     // 4) 导出 PPTX
     setStep(deps, taskId, 'export', 'running', '导出 PPTX…');
@@ -688,7 +742,7 @@ async function repairRound(
   svgDir: string,
   pagesProgress: PageProgress[],
   finalCheck: { ok: boolean; report: any; raw: string },
-): Promise<void> {
+): Promise<number> {
   // 找出终检报错的页（结构化报告优先，回退原始输出）
   const failingFiles = new Set<string>();
   if (Array.isArray(finalCheck.report?.files)) {
@@ -701,6 +755,7 @@ async function repairRound(
       if (finalCheck.raw.includes(f)) failingFiles.add(`${f}.svg`);
     }
   }
+  let repairedCount = 0;
   for (let i = 0; i < pagesProgress.length; i++) {
     const p = pagesProgress[i];
     if (p.status !== 'ok') continue;
@@ -717,10 +772,22 @@ async function repairRound(
       ], { maxTokens: 16384, temperature: 0.4 });
       writeFileSync(join(svgDir, file), extractSvg(out));
       p.retries = (p.retries ?? 0) + 1;
+      p.attempts = [...(p.attempts ?? []), `终检修复轮：根据质检报告重写了本页`];
+      repairedCount++;
     } catch (e: any) {
       logError('ORCH', `任务 ${taskId} 修复 ${file} 失败`, e?.message);
     }
   }
+  return repairedCount;
+}
+
+/** 统计质检报告中的错误条数 */
+function countCheckErrors(check: { ok: boolean; report: any; raw: string }): number {
+  let n = 0;
+  if (Array.isArray(check.report?.files)) {
+    for (const f of check.report.files) n += Array.isArray(f.errors) ? f.errors.length : 0;
+  }
+  return n || (check.ok ? 0 : 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -730,7 +797,7 @@ async function repairRound(
 export function createTask(
   deps: OrchestratorDeps,
   userId: string,
-  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[] },
+  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean },
 ): string {
   const id = randomUUID();
   const pages = Number(input.pages) > 0 ? Number(input.pages) : 0; // 0 = AI 决定
@@ -746,6 +813,7 @@ export function createTask(
         pages, format: input.format ?? 'ppt169', styleHint: input.styleHint ?? '',
         audience: input.audience ?? '', language: input.language ?? '',
         templateId: input.templateId ?? null, assetIds: input.assetIds ?? [],
+        research: input.research ?? false,
       }),
       JSON.stringify({ phase: 'planning', currentPage: 0, totalPages: pages, steps: initialSteps(), pages: [], message: '正在规划大纲…' }),
       Date.now()

@@ -11,7 +11,20 @@ export interface Settings {
   hasApiKey: boolean;
   chatModel: string;
   imageModel: string;
+  tavilyKeyMasked: string;
+  hasTavilyKey: boolean;
   isCustom?: boolean;
+}
+
+export interface BuiltinTemplate {
+  id: string;
+  kind: 'brand' | 'style' | 'deck';
+  name: string;
+  summary: string;
+  primaryColor?: string;
+  pageCount?: number;
+  style: { mode: string; palette: string[]; typography: string; notes: string };
+  refImages: { name: string; url: string }[];
 }
 
 export interface PageSpec {
@@ -38,6 +51,7 @@ export interface StepProgress {
   startedAt?: number;
   endedAt?: number;
   message?: string;
+  detail?: string[];
 }
 
 export interface PageProgress {
@@ -138,13 +152,13 @@ export const api = {
   me: () => req<User>('/api/auth/me'),
 
   getSettings: () => req<Settings>('/api/settings'),
-  saveSettings: (patch: Partial<{ baseUrl: string; apiKey: string; chatModel: string; imageModel: string }>) =>
+  saveSettings: (patch: Partial<{ baseUrl: string; apiKey: string; chatModel: string; imageModel: string; tavilyKey: string }>) =>
     req<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
   clearSettings: () => req<{ ok: boolean }>('/api/settings/custom', { method: 'DELETE' }),
   testSettings: () => req<{ ok: boolean; models: string[]; chatModel: string; imageModel: string }>('/api/settings/test', { method: 'POST' }),
   getModels: () => req<{ models: string[]; chatModel: string; imageModel: string }>('/api/models'),
 
-  createTask: (input: { mode: string; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[] }) =>
+  createTask: (input: { mode: string; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean }) =>
     req<{ id: string }>('/api/tasks', { method: 'POST', body: JSON.stringify(input) }),
   uploadAssets: async (files: File[]): Promise<UploadItem[]> => {
     const fd = new FormData();
@@ -156,6 +170,7 @@ export const api = {
     return (data as any).uploads as UploadItem[];
   },
   listTemplates: () => req<{ templates: TemplateItem[] }>('/api/templates'),
+  listBuiltinTemplates: () => req<{ templates: BuiltinTemplate[] }>('/api/builtin-templates'),
   createTemplate: (input: { name: string; description?: string; style: any; coverSvg?: string }) =>
     req<{ id: string }>('/api/templates', { method: 'POST', body: JSON.stringify(input) }),
   updateTemplate: (id: string, input: { name?: string; description?: string; style?: any; coverSvg?: string }) =>

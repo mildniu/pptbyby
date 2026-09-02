@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+  width="1280" height="720" viewBox="0 0 1280 720"
+  data-pptx-master="hebei_telecom_brand_master" data-pptx-master-name="Hebei Telecom Brand Master"
+  data-pptx-layout="closing" data-pptx-layout-name="Closing"
+  font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">
+  <!-- Master Background -->
+  <rect id="brand-master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+  <image id="brand-master-footer-ribbon" x="0" y="520" width="1280" height="200"
+    href="../images/footer_ribbon.png" preserveAspectRatio="xMidYMid slice"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+  <image id="brand-master-skyline" x="720" y="440" width="460" height="180"
+    href="../images/skyline_bg.png" preserveAspectRatio="xMidYMid meet" opacity="0.85"
+    data-pptx-layer="master" data-pptx-editable="false"/>
+
+  <!-- Top Logo & 5G -->
+  <image id="closing-logo" x="72" y="44" width="200" height="54" href="../images/logo.png"
+    preserveAspectRatio="xMinYMid meet" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="closing-5g" x="1140" y="80" fill="#005BAC" font-size="34" font-weight="bold"
+    data-pptx-layer="layout" data-pptx-editable="false">5G<tspan fill="#C00000" font-size="28">+</tspan></text>
+
+  <!-- Central 16-Character Corporate Spirit Slot -->
+  <g id="closing-spirit-slot" data-pptx-placeholder="title" data-pptx-bounds="300 180 680 200">
+    <text id="closing-spirit-carrier" data-pptx-carrier="true" x="640" y="240" text-anchor="middle" fill="#C00000" font-size="52" font-weight="bold">
+      <tspan x="640" dy="0">守正创新   求真务实</tspan>
+      <tspan x="640" dy="96">敢作善为   事争一流</tspan>
+    </text>
+  </g>
+
+  <!-- Bottom Left Commitments Slot -->
+  <g id="closing-commitments-slot" data-pptx-placeholder="body" data-pptx-idx="1" data-pptx-bounds="108 450 400 120">
+    <text id="closing-commitments-carrier" data-pptx-carrier="true" x="108" y="480" fill="#C00000" font-size="22" font-weight="bold">
+      <tspan x="108" dy="0">坚守奋斗精神</tspan>
+      <tspan x="158" dy="36">弘扬实干作风</tspan>
+      <tspan x="208" dy="36">秉承融合理念</tspan>
+    </text>
+  </g>
+
+  <!-- Slide Number Slot -->
+  <g id="closing-slide-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="2" data-pptx-bounds="1128 660 80 28">
+    <text id="closing-slide-number-carrier" data-pptx-carrier="true" x="1208" y="686" text-anchor="end" fill="#9CA3AF" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" font-size="14">{{PAGE_NUM}}</text>
+  </g>
+</svg>
