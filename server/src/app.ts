@@ -520,12 +520,52 @@ export async function buildApp(opts: AppOptions) {
     return { users: rows };
   });
 
+  app.post('/api/admin/users', async (req, reply) => {
+    const auth = requireAdmin(req, reply); if (!auth) return;
+    const { username, password, credits, role } = req.body as any;
+    if (!username || !password || String(password).length < 4) {
+      return reply.code(400).send({ error: '用户名和密码必填（密码≥4位）' });
+    }
+    const exists = db.prepare('SELECT id FROM users WHERE username=?').get(String(username));
+    if (exists) return reply.code(409).send({ error: '用户名已存在' });
+    const id = `u_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const { hashPassword } = await import('./crypto.js');
+    db.prepare('INSERT INTO users(id, username, password_hash, role, credits, created_at) VALUES (?,?,?,?,?,?)').run(
+      id, String(username), hashPassword(String(password)), role === 'admin' ? 'admin' : 'user', Math.max(0, Number(credits) || 0), Date.now()
+    );
+    log('ADMIN', `管理员 [${auth.uid}] 创建用户 ${username}`);
+    return { id, username, role: role === 'admin' ? 'admin' : 'user', credits: Math.max(0, Number(credits) || 0) };
+  });
+
+  // 重置密码
+  app.put('/api/admin/users/:id/password', async (req, reply) => {
+    const auth = requireAdmin(req, reply); if (!auth) return;
+    const { password } = req.body as any;
+    if (!password || String(password).length < 4) return reply.code(400).send({ error: '新密码至少 4 位' });
+    const id = (req.params as any).id;
+    const u = db.prepare('SELECT id, username FROM users WHERE id=?').get(id) as any;
+    if (!u) return reply.code(404).send({ error: '用户不存在' });
+    const { hashPassword } = await import('./crypto.js');
+    db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(String(password)), id);
+    log('ADMIN', `管理员 [${auth.uid}] 重置了用户 [${id}] 的密码`);
+    return { ok: true };
+  });
+
   app.put('/api/admin/users/:id', async (req, reply) => {
     const auth = requireAdmin(req, reply); if (!auth) return;
-    const { credits, status } = req.body as any;
+    const { credits, status, username, role } = req.body as any;
     const id = (req.params as any).id;
+    const u = db.prepare('SELECT * FROM users WHERE id=?').get(id) as any;
+    if (!u) return reply.code(404).send({ error: '用户不存在' });
+    if (username !== undefined && String(username).trim() && String(username) !== u.username) {
+      const dup = db.prepare('SELECT id FROM users WHERE username=?').get(String(username));
+      if (dup) return reply.code(409).send({ error: '用户名已存在' });
+      db.prepare('UPDATE users SET username=? WHERE id=?').run(String(username).trim(), id);
+    }
+    if (role !== undefined && ['admin', 'user'].includes(role)) db.prepare('UPDATE users SET role=? WHERE id=?').run(role, id);
     if (credits !== undefined) db.prepare('UPDATE users SET credits=? WHERE id=?').run(Math.max(0, Number(credits) || 0), id);
     if (status !== undefined) db.prepare('UPDATE users SET status=? WHERE id=?').run(status ? 1 : 0, id);
+    log('ADMIN', `管理员 [${auth.uid}] 更新用户 [${id}]`);
     return { ok: true };
   });
 

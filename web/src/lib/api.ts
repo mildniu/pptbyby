@@ -190,7 +190,11 @@ export const api = {
   deleteTask: (id: string) => req<{ ok: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }),
 
   adminUsers: () => req<{ users: (User & { status: number; credits: number; created_at: number })[] }>('/api/admin/users'),
-  adminUpdateUser: (id: string, patch: { credits?: number; status?: boolean }) =>
+  adminCreateUser: (input: { username: string; password: string; credits?: number; role?: string }) =>
+    req<{ id: string }>('/api/admin/users', { method: 'POST', body: JSON.stringify(input) }),
+  adminResetPassword: (id: string, password: string) =>
+    req<{ ok: boolean }>(`/api/admin/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ password }) }),
+  adminUpdateUser: (id: string, patch: { credits?: number; status?: boolean; username?: string; role?: string }) =>
     req<{ ok: boolean }>(`/api/admin/users/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
   adminTasks: () => req<{ tasks: any[] }>('/api/admin/tasks'),
 };
