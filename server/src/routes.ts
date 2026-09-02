@@ -238,6 +238,51 @@ export async function runEditNative(deps: any, taskId: string): Promise<void> {
     copyFileSync(src.path, srcCopy);
     const imp = await runPython('pptx_to_svg.py', [srcCopy, '-o', ws, '--inheritance-mode', 'both', '--roundtrip'], { timeoutMs: 300000 });
     if (imp.code !== 0) throw new Error(`roundtrip 导入失败: ${imp.stderr.slice(-300)}`);
+    // 修复资源引用逃逸：源 PPTX 的图片可能引用项目外路径（../../../images/...），
+    // pptx_to_svg 已把包内图片提取到 ws/images/，只需重写 href 为项目相对路径
+    {
+      const flatDir = join(ws, 'authoring-svg-flat');
+      if (existsSync(flatDir)) {
+        for (const f of readdirSync(flatDir).filter((x) => x.endsWith('.svg'))) {
+          const fp = join(flatDir, f);
+          let svg = readFileSync(fp, 'utf8');
+          const fixed = svg.split('../../../images/').join('../images/');
+          if (fixed !== svg) { writeFileSync(fp, fixed); svg = fixed; }
+        }
+      }
+    }
+    // 备份原始 authoring 文件（降级恢复用；analysis/roundtrip-svg 是另一种投影格式，不能直接用）
+    {
+      const flatDir = join(ws, 'authoring-svg-flat');
+      const backupDir = join(ws, 'authoring-svg-flat.orig');
+      mkdirSync(backupDir, { recursive: true });
+      for (const f of readdirSync(flatDir).filter((x) => x.endsWith('.svg'))) {
+        copyFileSync(join(flatDir, f), join(backupDir, f));
+      }
+    }
+    // 检测嵌套容器结构：某 shape 内嵌其他 source-ref 对象（如全幅背景图组包住全部内容）。
+    // 这种结构下任何编辑都会使容器被判 affected，重建 DrawingML 必失败（上游工具边界）。
+    {
+      let nested = false;
+      for (const f of readdirSync(join(ws, 'authoring-svg-flat')).filter((x) => x.endsWith('.svg'))) {
+        const svg = readFileSync(join(ws, 'authoring-svg-flat', f), 'utf8');
+        const gs = [...svg.matchAll(/<g [^>]*data-pptx-source-ref="(slide:\d+)"[^>]*>/g)];
+        for (const g of gs) {
+          const start = g.index! + g[0].length;
+          const nextG = svg.indexOf('</g>', start);
+          const chunk = svg.slice(start, nextG);
+          // 该 g 内部还有别的 source-ref（粗略：闭合前出现其他 ref）——
+          // 用整个文件剩余部分做嵌套判定更可靠：块内出现其他 ref id
+          const inner = svg.matchAll(/data-pptx-source-ref="(slide:\d+)"/g);
+          const others = [...inner].filter((m) => m[1] !== g[1] && m.index! > g.index! && m.index! < g.index! + 8000);
+          if (others.length >= 3) { nested = true; break; }  // ≥3 个其他 ref 疑似容器
+        }
+        if (nested) break;
+      }
+      if (nested) {
+        throw new Error('该 PPT 采用嵌套背景容器结构，逐页原位编辑暂不支持。请使用「美化」模式（保持文字 1:1 重新排版，可去掉配图、改风格）');
+      }
+    }
     setProgress(deps, taskId, { ...currentProgress(deps, taskId), projectDir: wsName });
     setStep(deps, taskId, 'plan', 'done', 'roundtrip 工作区就绪');
 
@@ -266,7 +311,23 @@ export async function runEditNative(deps: any, taskId: string): Promise<void> {
     const editPages = plan.pages.filter((p) => p.slide >= 1 && p.slide <= slideCount);
     if (!editPages.length) throw new Error('AI 未规划出需要编辑的页面（指令与内容可能不匹配）');
 
-    // 4) 逐页编辑：读原 SVG → LLM 修改 → 写回
+    // 写 spec（前端任务标题/大纲显示）
+    updateTask(deps, taskId, {
+      spec_json: JSON.stringify({
+        title: t.topic || '连续编辑',
+        format: 'ppt169',
+        pages: editPages.map((p) => ({
+          id: `p${String(p.slide).padStart(2, '0')}`,
+          role: 'edit',
+          title: `第${p.slide}页`,
+          outline: p.instruction.slice(0, 200),
+        })),
+        images: [],
+        style: { mode: 'edit-native', palette: [], typography: '', notes: '' },
+      }),
+    });
+
+    // 4) 逐页编辑：LLM 输出文本替换对，程序做 XML 级替换（保留全部结构/data-pptx-source-ref，roundtrip 契约不破坏）
     const pagesProgress: any[] = editPages.map((p) => ({ id: `p${String(p.slide).padStart(2, '0')}`, title: `第${p.slide}页`, role: 'edit', status: 'pending', attempts: [] }));
     let done = 0;
     for (let i = 0; i < editPages.length; i++) {
@@ -277,12 +338,29 @@ export async function runEditNative(deps: any, taskId: string): Promise<void> {
       const svgFile = join(svgDir, `slide_${String(slide).padStart(2, '0')}.svg`);
       try {
         const cur = readFileSync(svgFile, 'utf8');
-        const out = await chatCompletion(cfg, [
-          { role: 'system', content: '你是 SVG 页面编辑器。修改给定 SVG 实现指令，保持其他内容和所有 data-* 属性、结构不变。只输出修改后的完整 SVG，不要任何解释。' },
-          { role: 'user', content: `编辑指令：${instruction}\n\n原 SVG：\n${cur.slice(0, 60000)}` },
-        ], { maxTokens: 32768, temperature: 0.3 });
-        writeFileSync(svgFile, extractSvg(out));
-        pagesProgress[i].status = 'ok'; done++;
+        // 提取该页全部文本（带行内位置），让 LLM 基于真实文本输出替换
+        const texts = [...cur.matchAll(/<text[^>]*>([^<]+)<\/text>/g)].map((m, j) => ({ j, t: m[1] }));
+        const repOut = await chatCompletion(cfg, [
+          { role: 'system', content: `你是 PPT 文本编辑器。根据编辑指令，输出要修改的文本替换对。只输出 JSON：
+{ "replacements": [ { "old": "要替换的完整原文文本", "new": "替换后的文本" } ] }
+规则：old 必须与页面中现有 <text> 元素的文本内容完全一致（逐字符，含空格标点）；
+只列出需要修改的；新增整段文字不支持（需要重新排版时返回空数组）。` },
+          { role: 'user', content: `编辑指令：${instruction}\n\n该页现有文本元素：\n${JSON.stringify(texts.slice(0, 60))}\n\n原 SVG 结构（参考，勿全文重写）：\n${cur.slice(0, 8000)}` },
+        ], { maxTokens: 4096, temperature: 0.2 });
+        const rep = extractJson<{ replacements: { old: string; new: string }[] }>(repOut);
+        let svg = cur;
+        let applied = 0;
+        for (const r of (rep.replacements ?? [])) {
+          if (!r.old || !r.new || r.old === r.new) continue;
+          const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const before = svg;
+          svg = svg.split(esc(r.old)).join(esc(r.new));
+          if (svg !== before) applied++;
+        }
+        writeFileSync(svgFile, svg);
+        pagesProgress[i].status = 'ok';
+        pagesProgress[i].attempts = [applied > 0 ? `替换了 ${applied} 处文本` : '指令为非文本修改，页面保留原样'];
+        done++;
       } catch (e: any) {
         pagesProgress[i].status = 'failed'; pagesProgress[i].error = String(e?.message ?? e);
       }
@@ -312,8 +390,8 @@ export async function runEditNative(deps: any, taskId: string): Promise<void> {
       setStep(deps, taskId, 'export', 'running', '导出失败，恢复原页降级重试…');
       for (const p of editPages) {
         const svgFile = join(svgDir, `slide_${String(p.slide).padStart(2, '0')}.svg`);
-        const sourceSvg = join(ws, 'analysis', 'roundtrip-svg', 'flat', `slide_${String(p.slide).padStart(2, '0')}.svg`);
-        if (existsSync(sourceSvg)) copyFileSync(sourceSvg, svgFile);
+        const backupSvg = join(ws, 'authoring-svg-flat.orig', `slide_${String(p.slide).padStart(2, '0')}.svg`);
+        if (existsSync(backupSvg)) copyFileSync(backupSvg, svgFile);
       }
       exportRes = await runPython('svg_to_pptx.py', [ws, '--roundtrip'], { timeoutMs: 600000 });
       if (exportRes.code !== 0) throw new Error(`roundtrip 导出失败: ${errMsg}`);

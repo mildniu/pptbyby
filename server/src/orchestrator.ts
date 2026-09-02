@@ -839,8 +839,10 @@ export function createTask(
       JSON.stringify({ phase: 'planning', currentPage: 0, totalPages: pages, steps: initialSteps(), pages: [], message: '正在规划大纲…' }),
       Date.now()
     );
-  // 异步规划，不阻塞响应
-  void planTask(deps, id);
+  // 异步规划（仅生成类模式；beautify/edit_native/create_template/image_to_pptx 由路由层直接分发执行流程）
+  if (input.mode === 'generate' || input.mode === 'quick') {
+    void planTask(deps, id);
+  }
   return id;
 }
 

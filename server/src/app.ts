@@ -413,11 +413,12 @@ export async function buildApp(opts: AppOptions) {
       'application/vnd.openxmlformats-officedocument.presentationml.presentation', statSync(t.result_path).size, Date.now()
     );
 
-    // 创建 edit_native 任务并直接执行
+    // 创建 edit_native 任务并直接执行（topic 用源任务标题，避免奇怪名称）
+    const srcTitle = (JSON.parse(t.spec_json || '{}')?.title) || t.topic || '连续编辑';
     const id = createTask(
       { db, secretKey: SECRET, dataDir: opts.dataDir },
       auth.uid,
-      { mode: 'edit_native', fileId: upId, instruction: String(instruction).slice(0, 5000) }
+      { mode: 'edit_native', fileId: upId, instruction: String(instruction).slice(0, 5000), topic: srcTitle }
     );
     log('TASK', `用户 [${auth.uid}] 从任务 ${t.id} 连续编辑 → 新任务 ${id}`);
     void (await import('./routes.js')).runEditNative({ db, secretKey: SECRET, dataDir: opts.dataDir }, id);

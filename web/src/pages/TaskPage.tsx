@@ -674,7 +674,23 @@ export default function TaskPage() {
         </div>
       )}
       {task.status === 'failed' && (
-        <div className="mt-5 rounded-xl bg-red-50 px-5 py-3.5 text-sm text-red-600">{task.error ?? '生成失败'} <Link to="/create" className="ml-2 underline">重新创建</Link></div>
+        <div className="mt-5 rounded-xl bg-red-50 px-5 py-3.5 text-sm text-red-600">
+          {task.error ?? '生成失败'}
+          {task.mode === 'edit_native' && task.error?.includes('美化') && task.downloadUrl && (
+            <button
+              className="ml-2 rounded-lg bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700"
+              onClick={async () => {
+                // 用同样指令转 beautify（重新上传该 pptx）
+                try {
+                  const up = await api.uploadAssets([await fetch(task.downloadUrl!, { credentials: 'include' }).then((r) => r.blob()).then((b) => new File([b], 'edit.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }))]);
+                  const r = await api.createTask({ mode: 'beautify', fileId: up[0].id, instruction: task.error?.includes('美化') ? '' : '' });
+                  nav(`/task/${r.id}`);
+                } catch (e: any) { setError(e.message); }
+              }}
+            >改用美化模式重排 →</button>
+          )}
+          <Link to="/create" className="ml-2 underline">重新创建</Link>
+        </div>
       )}
       {task.status === 'cancelled' && (
         <div className="mt-5 rounded-xl bg-neutral-100 px-5 py-3.5 text-sm text-neutral-500">任务已取消，预扣积分已退还。<Link to="/create" className="text-orange-600">再建一个</Link></div>
