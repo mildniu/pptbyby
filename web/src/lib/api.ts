@@ -75,6 +75,8 @@ export interface TemplateItem {
   id: string;
   name: string;
   description: string;
+  kind: 'style' | 'deck';
+  pageCount: number;
   style: { mode: string; palette: string[]; typography: string; notes: string };
   coverSvgUrl: string | null;
   created_by: string;

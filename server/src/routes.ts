@@ -353,6 +353,7 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
   const userId = t.user_id;
 
   if (!params.name) return failTask(deps, taskId, '缺少模板名称');
+  const tplKind = params.templateKind === 'deck' ? 'deck' : 'style'; // 风格模板 | 场景方案（多页原型）
   const ref = params.fileId ? resolveUploadFile(deps, params.fileId) : null;
 
   const progress: TaskProgress = { phase: 'generating', currentPage: 0, totalPages: 0, steps: CT_STEPS.map((s) => ({ ...s, status: 'pending' })), pages: [] };
@@ -367,6 +368,7 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
     setStep(deps, taskId, 'plan', 'running', ref ? '分析参考 PPTX…' : '分析主题描述…');
     let refContent = '';
     let coverSvg: string | null = null;
+    let protoPages: string[] = [];
     if (ref && (ref.path.endsWith('.pptx') || ref.mime.includes('presentationml'))) {
       const tmpDir = join(deps.dataDir, 'tmp');
       mkdirSync(tmpDir, { recursive: true });
@@ -414,14 +416,20 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
         }
         refContent = parts.join('\n\n');
       }
-      // 封面 SVG（视觉预览，从 pptx_to_svg 拿第一页；pptx_to_svg 要求 .pptx 扩展）
+      // 页面原型 SVG（视觉预览；pptx_to_svg 要求 .pptx 扩展）
       const tmpWs = join(tmpDir, `${taskId.replace(/-/g, '_')}_tpl`);
       const srcPptx = ref.path.endsWith('.pptx') ? ref.path : join(tmpDir, `${taskId.replace(/-/g, '_')}_src.pptx`);
       if (srcPptx !== ref.path) copyFileSync(ref.path, srcPptx);
       const imp = await runPython('pptx_to_svg.py', [srcPptx, '-o', tmpWs, '--inheritance-mode', 'flat'], { timeoutMs: 300000 });
       if (imp.code === 0) {
-        const coverFile = join(tmpWs, 'svg', 'slide_01.svg');
-        if (existsSync(coverFile)) coverSvg = readFileSync(coverFile, 'utf8').slice(0, 200000);
+        const svgDir = join(tmpWs, 'svg');
+        if (existsSync(svgDir)) {
+          const files = readdirSync(svgDir).filter((f) => f.endsWith('.svg')).sort();
+          // deck：前 8 页原型；style：仅封面
+          const take = tplKind === 'deck' ? files.slice(0, 8) : files.slice(0, 1);
+          protoPages = take.map((f) => readFileSync(join(svgDir, f), 'utf8').slice(0, 200000));
+          if (protoPages.length) coverSvg = protoPages[0];
+        }
       }
     } else if (ref && ref.mime.startsWith('image/')) {
       refContent = `（用户提供了一张参考图：${ref.filename}，风格描述见用户说明）`;
@@ -447,7 +455,7 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
 - palette 必须来自「实际观测」的高频色（含背景/正文/强调色），不得凭空创造；
 - typography 必须基于观测的字体与字号分布归纳字阶档位；
 - notes 要描述真实观察到的页面结构模式（标题条位置、卡片/网格用法、强调色用在哪类元素上）。` },
-      { role: 'user', content: `模板名称（用户指定）：${params.name}\n${params.description ? `用途说明：${params.description}` : ''}\n${refContent ? `参考 PPT 风格数据：\n${refContent.slice(0, 30000)}` : '（无参考材料，请基于名称与用途设计合理的模板规范）'}` },
+      { role: 'user', content: `模板名称（用户指定）：${params.name}\n模板类型：${tplKind === 'deck' ? '场景方案（多页原型）——notes 需归纳页面角色体系（封面/目录/章节/内容/结尾各是什么布局模式）' : '风格模板'}\n${params.description ? `用途说明：${params.description}` : ''}\n${refContent ? `参考 PPT 风格数据：\n${refContent.slice(0, 30000)}` : '（无参考材料，请基于名称与用途设计合理的模板规范）'}` },
     ], { maxTokens: 4096, temperature: 0.3 });
     const distilled = extractJson<any>(distillOut);
     setStep(deps, taskId, 'assets', 'done', '风格规范蒸馏完成');
@@ -461,8 +469,10 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
       typography: String(distilled.style?.typography ?? ''),
       notes: String(distilled.style?.notes ?? ''),
     });
-    deps.db.prepare('INSERT INTO templates(id, name, description, style_json, cover_svg, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)').run(
-      id, params.name, String(distilled.description ?? params.description ?? '').slice(0, 500), styleJson, coverSvg, userId, Date.now(), Date.now()
+    deps.db.prepare('INSERT INTO templates(id, name, description, style_json, kind, pages_json, cover_svg, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(
+      id, params.name, String(distilled.description ?? params.description ?? '').slice(0, 500), styleJson,
+      tplKind, tplKind === 'deck' && protoPages.length > 1 ? JSON.stringify(protoPages) : null,
+      coverSvg, userId, Date.now(), Date.now()
     );
     setStep(deps, taskId, 'pages', 'done', '已保存');
     setStep(deps, taskId, 'inspect', 'done', `模板「${params.name}」已入库`);

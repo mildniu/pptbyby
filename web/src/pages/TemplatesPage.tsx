@@ -244,14 +244,27 @@ export default function TemplatesPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
             {templates.map((t) => (
               <div key={t.id} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
-                {/* 预览图（点击放大） */}
+                {/* 预览图（点击放大；deck 类多页原型可翻页） */}
                 {t.coverSvgUrl && (
                   <div className="group relative aspect-video cursor-zoom-in overflow-hidden border-b border-neutral-100 bg-neutral-50"
-                    onClick={() => setPreview({ list: [{ url: t.coverSvgUrl!, title: t.name }], index: 0 })}>
+                    onClick={() => {
+                      const n = Math.max(1, t.pageCount ?? 1);
+                      const list = Array.from({ length: n }, (_, i) => ({
+                        url: n > 1 ? `/api/templates/${t.id}/pages/${i}` : t.coverSvgUrl!,
+                        title: `${t.name} · 第 ${i + 1}/${n} 页`,
+                      }));
+                      setPreview({ list, index: 0 });
+                    }}>
                     <img src={t.coverSvgUrl} alt={t.name} className="absolute inset-0 h-full w-full object-cover" />
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/20 group-hover:opacity-100">
                       <Maximize2 className="h-6 w-6 text-white" />
                     </div>
+                    {(t.pageCount ?? 0) > 1 && (
+                      <span className="absolute right-2 top-2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white">场景方案 · {(t.pageCount)} 页原型</span>
+                    )}
+                    {t.kind === 'deck' && (t.pageCount ?? 0) <= 1 && (
+                      <span className="absolute right-2 top-2 rounded bg-emerald-600/90 px-1.5 py-0.5 text-[10px] text-white">场景方案</span>
+                    )}
                   </div>
                 )}
                 <div className="p-5">

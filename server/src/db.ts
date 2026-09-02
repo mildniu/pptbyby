@@ -74,6 +74,8 @@ export function openDb(dataDir: string): { db: Db; mediaDir: string } {
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       style_json TEXT NOT NULL DEFAULT '{}', -- {mode, palette[], typography, notes}
+      kind TEXT NOT NULL DEFAULT 'style',    -- 'style' 风格模板 | 'deck' 场景方案（多页原型）
+      pages_json TEXT,                       -- 场景方案的页面原型 SVG 列表（JSON 数组，可选）
       cover_svg TEXT,           -- 封面页示例 SVG（可选）
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
@@ -82,6 +84,16 @@ export function openDb(dataDir: string): { db: Db; mediaDir: string } {
   `);
 
   // 迁移：老表补列
+  try {
+    const tplInfo = db.pragma('table_info(templates)') as any[];
+    if (tplInfo.length && !tplInfo.some((c) => c.name === 'kind')) {
+      db.exec("ALTER TABLE templates ADD COLUMN kind TEXT NOT NULL DEFAULT 'style'");
+    }
+    if (tplInfo.length && !tplInfo.some((c) => c.name === 'pages_json')) {
+      db.exec('ALTER TABLE templates ADD COLUMN pages_json TEXT');
+    }
+  } catch {}
+
   try {
     const info = db.pragma('table_info(tasks)') as any[];
     for (const [col, ddl] of [

@@ -99,6 +99,7 @@ export default function CreatePage() {
   const shots = useUploader();    // image_to_pptx 截图
   const [instruction, setInstruction] = useState('');
   const [tplName, setTplName] = useState('');
+  const [tplKind, setTplKind] = useState<'style' | 'deck'>('deck');
   const [tplDesc, setTplDesc] = useState('');
 
   const [busy, setBusy] = useState(false);
@@ -140,7 +141,7 @@ export default function CreatePage() {
       } else if (mode === 'edit_native') {
         input = { mode, fileId: srcFile.pptx?.id, instruction };
       } else if (mode === 'create_template') {
-        input = { mode, name: tplName, description: tplDesc, fileId: srcFile.pptx?.id };
+        input = { mode, name: tplName, description: tplDesc, fileId: srcFile.pptx?.id, templateKind: tplKind };
       } else {
         input = { mode, fileIds: shots.items.map((s) => s.id), instruction };
       }
@@ -210,11 +211,21 @@ export default function CreatePage() {
             className="studio-prompt min-h-[64px] w-full resize-none border-0 bg-transparent px-2 pt-1 text-sm leading-6 text-neutral-950 outline-none placeholder:text-neutral-400 focus:outline-none sm:min-h-[72px]"
           />
         ) : mode === 'create_template' ? (
-          <div className="grid grid-cols-1 gap-2 px-2 pt-1 sm:grid-cols-2">
+          <div className="px-2 pt-1">
+          <div className="mb-2 flex gap-1.5">
+            {([['deck', '场景方案（多页原型，可翻页预览源稿页面）'], ['style', '风格模板（仅风格规范）']] as const).map(([k, d]) => (
+              <button key={k} type="button" title={d}
+                onClick={() => setTplKind(k as any)}
+                className={`rounded-full px-3 py-1.5 text-xs transition-colors ${tplKind === k ? 'bg-neutral-900 font-medium text-white' : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'}`}
+              >{k === 'deck' ? '场景方案' : '风格模板'}</button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <input value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="模板名称 *（如：科技公司品牌风）"
               className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-orange-400" />
             <input value={tplDesc} onChange={(e) => setTplDesc(e.target.value)} placeholder="适用场景（可选）"
               className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-orange-400" />
+          </div>
           </div>
         ) : (
           <input

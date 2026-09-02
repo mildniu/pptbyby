@@ -160,7 +160,7 @@ export async function buildApp(opts: AppOptions) {
   // ---------- 任务 ----------
   app.post('/api/tasks', async (req, reply) => {
     const auth = requireAuth(req, reply); if (!auth) return;
-    const { mode, topic, sourceText, pages, format, styleHint, audience, language, templateId, assetIds, instruction, name, description, fileId, fileIds, research, imageMode } = req.body as any;
+    const { mode, topic, sourceText, pages, format, styleHint, audience, language, templateId, assetIds, instruction, name, description, fileId, fileIds, research, imageMode, templateKind } = req.body as any;
     const m = (TASK_MODES.find((x) => x.id === mode)?.id ?? 'generate') as TaskMode;
     const ready = TASK_MODES.find((x) => x.id === m)?.ready;
     if (!ready) return reply.code(400).send({ error: '该模式即将上线' });
@@ -188,6 +188,7 @@ export async function buildApp(opts: AppOptions) {
         fileIds: Array.isArray(fileIds) ? fileIds.map(String).slice(0, 30) : [],
         research: Boolean(research),
         imageMode: ['auto', 'none', 'every'].includes(String(imageMode)) ? String(imageMode) : 'auto',
+        templateKind: templateKind === 'deck' ? 'deck' : 'style',
       }
     );
     log('TASK', `用户 [${auth.uid}] 创建任务 ${id} (mode=${m}, pages=${p || 'AI'}, assets=${assetIds?.length ?? 0}, tpl=${templateId ?? '-'})`);
@@ -443,20 +444,41 @@ export async function buildApp(opts: AppOptions) {
   });
 
   // ---------- 模板 ----------
+  // 页面原型端点：deck 模板每页一张
+  app.get('/api/templates/:id/pages/:n', async (req, reply) => {
+    const auth = requireAuth(req, reply); if (!auth) return;
+    const t = db.prepare('SELECT pages_json, cover_svg FROM templates WHERE id=?').get((req.params as any).id) as any;
+    if (!t) return reply.code(404).send({ error: '模板不存在' });
+    let pages: string[] = [];
+    try { pages = t.pages_json ? JSON.parse(t.pages_json) : []; } catch { /* ignore */ }
+    if (!pages.length && t.cover_svg) pages = [t.cover_svg];
+    const n = Number((req.params as any).n);
+    if (!Number.isInteger(n) || n < 0 || n >= pages.length) return reply.code(404).send({ error: '页面不存在' });
+    reply.header('Content-Type', 'image/svg+xml');
+    reply.header('Cache-Control', 'private, max-age=3600');
+    return reply.send(pages[n]);
+  });
+
   app.get('/api/templates', async (req, reply) => {
     const auth = requireAuth(req, reply); if (!auth) return;
     const rows = db
-      .prepare(`SELECT t.id, t.name, t.description, t.style_json, t.cover_svg, t.created_by, t.created_at, t.updated_at, u.username AS created_by_name
+      .prepare(`SELECT t.id, t.name, t.description, t.style_json, t.kind, t.pages_json, t.cover_svg, t.created_by, t.created_at, t.updated_at, u.username AS created_by_name
                 FROM templates t LEFT JOIN users u ON u.id = t.created_by
                 WHERE t.created_by=? OR t.created_by='admin' ORDER BY t.updated_at DESC`)
       .all(auth.uid) as any[];
     return {
       templates: rows.map((r) => {
         const style = (() => { try { return JSON.parse(r.style_json); } catch { return {}; } })();
+        let pageCount = 0;
+        try { pageCount = r.pages_json ? JSON.parse(r.pages_json).length : 0; } catch { /* ignore */ }
         return {
-          ...r,
+          id: r.id, name: r.name, description: r.description,
+          kind: r.kind ?? 'style',
+          pageCount: pageCount || (r.cover_svg ? 1 : 0),
           style,
-          style_json: undefined,
+          created_by: r.created_by,
+          created_by_name: r.created_by_name,
+          created_at: r.created_at, updated_at: r.updated_at,
           // 有封面 SVG 用之；否则程序化生成风格示意
           coverSvgUrl: r.cover_svg
             ? `/api/templates/${r.id}/cover`

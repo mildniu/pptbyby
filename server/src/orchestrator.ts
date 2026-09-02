@@ -816,7 +816,7 @@ function countCheckErrors(check: { ok: boolean; report: any; raw: string }): num
 export function createTask(
   deps: OrchestratorDeps,
   userId: string,
-  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean; instruction?: string; name?: string; description?: string; fileId?: string; fileIds?: string[]; imageMode?: string },
+  input: { mode: TaskMode; topic?: string; sourceText?: string; pages?: number; format?: string; styleHint?: string; audience?: string; language?: string; templateId?: string | null; assetIds?: string[]; research?: boolean; instruction?: string; name?: string; description?: string; fileId?: string; fileIds?: string[]; imageMode?: string; templateKind?: string },
 ): string {
   const id = randomUUID();
   const pages = Number(input.pages) > 0 ? Number(input.pages) : 0; // 0 = AI 决定
@@ -832,7 +832,7 @@ export function createTask(
         pages, format: input.format ?? 'ppt169', styleHint: input.styleHint ?? '',
         audience: input.audience ?? '', language: input.language ?? '',
         templateId: input.templateId ?? null, assetIds: input.assetIds ?? [],
-        research: input.research ?? false, imageMode: input.imageMode ?? 'auto',
+        research: input.research ?? false, imageMode: input.imageMode ?? 'auto', templateKind: input.templateKind ?? 'style',
         instruction: input.instruction ?? '', name: input.name ?? '', description: input.description ?? '',
         fileId: input.fileId ?? null, fileIds: input.fileIds ?? [],
       }),
