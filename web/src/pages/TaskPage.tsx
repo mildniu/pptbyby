@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, Loader2, Download, Check, Pencil, Trash2, Coins, AlertTriangle,
-  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2, FileEdit,
+  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2, FileEdit, PenSquare, ExternalLink,
 } from 'lucide-react';
 import { api, type TaskDetail, type StepProgress } from '../lib/api';
 
@@ -107,6 +107,8 @@ export default function TaskPage() {
   const [reditOpen, setReditOpen] = useState(false);
   const [reditText, setReditText] = useState('');
   const [reditBusy, setReditBusy] = useState(false);
+  const [editorRunning, setEditorRunning] = useState(false);
+  const [editorBusy, setEditorBusy] = useState<null | 'start' | 'export'>(null);
   const pollRef = useRef<number | null>(null);
 
   const load = async () => {
@@ -118,6 +120,8 @@ export default function TaskPage() {
       const run = t.progress?.steps?.find((s) => s.status === 'running');
       if (run) setActiveStep(run.key);
       else if (t.status === 'awaiting_confirm') setActiveStep('plan');
+      // 同步编辑器状态（低频）
+      api.editorStatus(t.id).then((e) => setEditorRunning(e.running)).catch(() => {});
     } catch (e: any) {
       setError(e.message);
     }
@@ -531,6 +535,59 @@ export default function TaskPage() {
               </a>
             )}
           </div>
+          {/* SVG 编辑器（可视化二次编辑） */}
+          {task.slides.length > 0 && (
+            <div className="rounded-xl border border-neutral-200 bg-white px-5 py-3.5">
+              <div className="flex items-center justify-between">
+                <div className="text-sm">
+                  <div className="flex items-center gap-1.5 font-medium"><PenSquare className="h-4 w-4 text-orange-500" />SVG 编辑器</div>
+                  <p className="mt-0.5 text-xs text-neutral-400">可视化编辑每页：点选元素、拖拽移动、直接改文字/颜色/坐标；改完点「重新导出」生成新 PPTX</p>
+                </div>
+                {!editorRunning ? (
+                  <button
+                    className="flex items-center gap-1.5 rounded-lg bg-neutral-800 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-900 disabled:opacity-50"
+                    disabled={!!editorBusy}
+                    onClick={async () => {
+                      setEditorBusy('start'); setError('');
+                      try {
+                        const r = await api.editorStart(task.id);
+                        setEditorRunning(true);
+                        window.open(r.url, '_blank');
+                      } catch (e: any) { setError(e.message); } finally { setEditorBusy(null); }
+                    }}
+                  >
+                    {editorBusy === 'start' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
+                    {editorBusy === 'start' ? '启动中…' : '打开编辑器'}
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                      disabled={!!editorBusy}
+                      onClick={async () => {
+                        setEditorBusy('export'); setError('');
+                        try {
+                          const r = await api.editorReexport(task.id);
+                          alert('已重新导出，可下载新版本');
+                          load();
+                        } catch (e: any) { setError(e.message); } finally { setEditorBusy(null); }
+                      }}
+                    >
+                      {editorBusy === 'export' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      {editorBusy === 'export' ? '导出中…' : '重新导出 PPTX'}
+                    </button>
+                    <a href={`/editor/${task.id}/`} target="_blank" className="flex items-center gap-1 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-600 hover:bg-neutral-50">
+                      <ExternalLink className="h-4 w-4" />编辑器窗口
+                    </a>
+                    <button
+                      className="rounded-lg border border-neutral-200 px-3 py-2 text-xs text-neutral-400 hover:bg-red-50 hover:text-red-500"
+                      onClick={async () => { await api.editorStop(task.id); setEditorRunning(false); }}
+                    >停止</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {/* 连续编辑 */}
           {task.downloadUrl && (
             <div className="rounded-xl border border-neutral-200 bg-white px-5 py-3.5">

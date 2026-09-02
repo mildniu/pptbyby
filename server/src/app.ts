@@ -11,6 +11,7 @@ import { getUserGatewayConfig, saveUserGatewayConfig, clearUserGatewayConfig, li
 import { loadBuiltinTemplates, builtinSpecText } from './builtinTemplates.js';
 import { createTask, confirmTask, cancelTask, TASK_MODES, type TaskMode } from './orchestrator.js';
 import { runBeautify, runEditNative, runCreateTemplate, runImageToPptx } from './routes.js';
+import { startEditor, stopEditor, editorStatus, proxyEditor } from './svgEditor.js';
 import { log, logError } from './logger.js';
 
 export interface AppOptions {
@@ -301,6 +302,97 @@ export async function buildApp(opts: AppOptions) {
     const res = confirmTask({ db, secretKey: SECRET, dataDir: opts.dataDir }, (req.params as any).id, auth.uid, spec);
     if (res.error) return reply.code(400).send(res);
     return { ok: true };
+  });
+
+  // ---------- SVG 编辑器（pipeline 自带，反向代理） ----------
+  app.post('/api/tasks/:id/editor/start', async (req, reply) => {
+    const auth = requireAuth(req, reply); if (!auth) return;
+    const t = db.prepare('SELECT * FROM tasks WHERE id=? AND user_id=?').get((req.params as any).id, auth.uid) as any;
+    if (!t) return reply.code(404).send({ error: '任务不存在' });
+    // 定位项目目录
+    const projectsDir = join(opts.dataDir, 'projects');
+    const prefix = String(t.id).replace(/-/g, '_');
+    const dir = existsSync(projectsDir) ? readdirSync(projectsDir).find((d) => d.startsWith(prefix) && !d.endsWith('.pptx')) : null;
+    if (!dir) return reply.code(400).send({ error: '找不到项目目录（任务需已生成页面）' });
+    try {
+      const h = await startEditor(join(projectsDir, dir), t.id);
+      return { ok: true, isNew: h.isNew, url: `/editor/${t.id}/` };
+    } catch (e: any) {
+      return reply.code(500).send({ error: e?.message ?? '启动失败' });
+    }
+  });
+
+  app.post('/api/tasks/:id/editor/stop', async (req, reply) => {
+    const auth = requireAuth(req, reply); if (!auth) return;
+    const t = db.prepare('SELECT id FROM tasks WHERE id=? AND user_id=?').get((req.params as any).id, auth.uid) as any;
+    if (!t) return reply.code(404).send({ error: '任务不存在' });
+    return { ok: stopEditor(t.id) };
+  });
+
+  app.get('/api/tasks/:id/editor/status', async (req, reply) => {
+    const auth = requireAuth(req, reply); if (!auth) return;
+    return editorStatus((req.params as any).id);
+  });
+
+  // 应用编辑并重新导出（编辑器改的是 svg_output/，需要跑质检+导出新 PPTX）
+  app.post('/api/tasks/:id/editor/reexport', async (req, reply) => {
+    const auth = requireAuth(req, reply); if (!auth) return;
+    const t = db.prepare('SELECT * FROM tasks WHERE id=? AND user_id=?').get((req.params as any).id, auth.uid) as any;
+    if (!t) return reply.code(404).send({ error: '任务不存在' });
+    const projectsDir = join(opts.dataDir, 'projects');
+    const prefix = String(t.id).replace(/-/g, '_');
+    const dir = existsSync(projectsDir) ? readdirSync(projectsDir).find((d) => d.startsWith(prefix) && !d.endsWith('.pptx')) : null;
+    if (!dir) return reply.code(400).send({ error: '找不到项目目录' });
+    const projectPath = join(projectsDir, dir);
+
+    const { runPython, qualityCheck } = await import('./pipeline.js');
+    try {
+      // 终检 + 导出（quick-generate 契约）
+      const check = await qualityCheck(projectPath, 'final');
+      if (!check.ok) {
+        return reply.code(400).send({ error: '质检未通过，请修正编辑内容后重试', detail: JSON.stringify(check.report?.summary ?? {}).slice(0, 200) });
+      }
+      const exportRes = await runPython('svg_to_pptx.py', [projectPath, '--quick-generate'], { timeoutMs: 600000 });
+      if (exportRes.code !== 0) {
+        return reply.code(500).send({ error: `导出失败: ${exportRes.stderr.slice(-300)}` });
+      }
+      const exportsDir = join(projectPath, 'exports');
+      const pptxFiles = existsSync(exportsDir) ? readdirSync(exportsDir).filter((f) => f.endsWith('.pptx')).sort() : [];
+      if (!pptxFiles.length) return reply.code(500).send({ error: '导出目录无 pptx' });
+      const resultPath = join(exportsDir, pptxFiles[pptxFiles.length - 1]);
+      db.prepare('UPDATE tasks SET result_path=?, status=?, done_at=?, error=NULL WHERE id=?').run(
+        resultPath, 'done', Date.now(), t.id
+      );
+      return { ok: true, downloadUrl: `/media/projects/${dir}/exports/${basename(resultPath)}` };
+    } catch (e: any) {
+      return reply.code(500).send({ error: e?.message ?? '重新导出失败' });
+    }
+  });
+
+  // 反向代理 /editor/<taskId>/<path...>（鉴权后转发给 flask）
+  app.route({
+    method: ['GET', 'POST', 'DELETE', 'PUT'],
+    url: '/editor/:taskId/*',
+    preHandler: async (req: any, reply: any) => {
+      const auth = getAuth(req);
+      if (!auth) { reply.code(401).send({ error: '未登录' }); return; }
+      // 校验任务归属
+      const t = db.prepare('SELECT id FROM tasks WHERE id=? AND user_id=?').get((req.params as any).taskId, auth.uid) as any;
+      if (!t) { reply.code(404).send({ error: '任务不存在' }); return; }
+      if (!editorStatus((req.params as any).taskId).running) { reply.code(409).send({ error: '编辑器未启动' }); return; }
+    },
+    handler: async (req: any, reply: any) => {
+      const taskId = (req.params as any).taskId as string;
+      const subPath = ((req.params as any)['*'] as string) || '';
+      try {
+        const body = req.body ? Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : undefined;
+        const r = await proxyEditor(taskId, subPath, req.method, req.headers as any, body);
+        for (const [k, v] of Object.entries(r.headers)) reply.header(k, v);
+        return reply.code(r.status).send(r.body);
+      } catch (e: any) {
+        return reply.code(502).send({ error: e?.message ?? '代理失败' });
+      }
+    },
   });
 
   // 从已完成任务的结果 PPTX 直接发起下一轮编辑（连续编辑）

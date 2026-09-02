@@ -183,6 +183,10 @@ export const api = {
   cancelTask: (id: string) => req<{ ok: boolean }>(`/api/tasks/${id}/cancel`, { method: 'POST' }),
   reditTask: (id: string, instruction: string) =>
     req<{ id: string }>(`/api/tasks/${id}/redit`, { method: 'POST', body: JSON.stringify({ instruction }) }),
+  editorStart: (id: string) => req<{ ok: boolean; isNew: boolean; url: string }>(`/api/tasks/${id}/editor/start`, { method: 'POST' }),
+  editorStop: (id: string) => req<{ ok: boolean }>(`/api/tasks/${id}/editor/stop`, { method: 'POST' }),
+  editorStatus: (id: string) => req<{ running: boolean; port?: number }>(`/api/tasks/${id}/editor/status`),
+  editorReexport: (id: string) => req<{ ok: boolean; downloadUrl: string }>(`/api/tasks/${id}/editor/reexport`, { method: 'POST' }),
   deleteTask: (id: string) => req<{ ok: boolean }>(`/api/tasks/${id}`, { method: 'DELETE' }),
 
   adminUsers: () => req<{ users: (User & { status: number; credits: number; created_at: number })[] }>('/api/admin/users'),
