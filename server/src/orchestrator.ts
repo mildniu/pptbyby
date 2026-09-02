@@ -321,7 +321,23 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
     } else {
       const tpl = deps.db.prepare('SELECT * FROM templates WHERE id=?').get(params.templateId) as any;
       if (tpl) {
-        templateConstraint = `\n模板风格约束（必须严格遵循）：${tpl.name} — ${JSON.stringify(JSON.parse(tpl.style_json || '{}'))}`;
+        const style = JSON.parse(tpl.style_json || '{}');
+        let constraint = `\n模板风格约束（必须严格遵循）：${tpl.name} — ${JSON.stringify(style)}`;
+        // 场景方案（deck）：原型 SVG 的版式结构也注入 Executor 参考（内容已脱敏）
+        if ((tpl.kind ?? 'style') === 'deck' && tpl.pages_json) {
+          try {
+            const pages: string[] = JSON.parse(tpl.pages_json);
+            // 只给 Executor 传页面结构摘要（版式骨架：每个 g 的 bounds 与角色），避免上下文爆炸
+            const skeletons = pages.map((svg, i) => {
+              const gs = [...svg.matchAll(/<g id="([^"]*)"[^>]*data-pptx-bounds="([^"]*)"/g)]
+                .map((m) => `${m[1]}@${m[2]}`).slice(0, 8);
+              const bg = svg.match(/fill="(#[0-9A-Fa-f]{6})"/)?.[1];
+              return `第${i + 1}页${bg ? `（背景${bg}）` : ''}: ${gs.join(', ') || '（无分组结构）'}`;
+            }).join('\n');
+            constraint += `\n页面版式骨架（每页的模块布局参考，布局须类似但内容用新主题）：\n${skeletons}`;
+          } catch { /* ignore */ }
+        }
+        templateConstraint = constraint;
       }
     }
   }

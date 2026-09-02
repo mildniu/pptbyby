@@ -412,15 +412,46 @@ export async function runEditNative(deps: any, taskId: string): Promise<void> {
   }
 }
 
+/** deck 原型内容脱敏：把源稿的具体业务文本替换为占位文案，保留版式/配色/结构。
+ *  文本可能在 <text> 直接内容或嵌套 <tspan> 中，都处理。
+ *  预览呈现"模板样子"而非源稿截图；后续生成也不会照抄原文内容。 */
+function sanitizeProto(svg: string, _pageIdx: number, _total: number): string {
+  const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const titles = ['主标题文案占位', '章节标题占位', '要点标题示例'];
+  const bodies = ['正文要点占位一，说明性文字示例。', '要点二：支撑数据或论据示例。', '补充说明文字示例，用于展示正文字阶。'];
+  let big = 0, small = 0;
+
+  // 替换 <text ...>...</text> 整块：按字号决定占位层级，数字/符号短文本保留（页码等骨架）
+  return svg.replace(/<text([^>]*)>([\s\S]*?)<\/text>/g, (m, attrs: string, inner: string) => {
+    // 提取块内全部可见文本（含 tspan 嵌套）
+    const visible = inner.replace(/<[^>]+>/g, '').trim();
+    // 保留：空、短数字/符号（页码、日期骨架、编号"一/二/1/2"）
+    if (!visible || (visible.length <= 6 && /^[\d\s\/·.\-—:：()（）一二三四五六七八九十]+$/.test(visible))) return m;
+    const fs = Number((attrs.match(/font-size="([\d.]+)"/) || [])[1] || 0);
+    const ph = fs >= 24 || visible.length <= 22
+      ? titles[big++ % titles.length]
+      : bodies[small++ % bodies.length];
+    // 替换 inner 中的文本节点：tspan 保留首个替换、其余清空（保持结构）
+    let replacedOnce = false;
+    const newInner = inner.replace(/(<tspan[^>]*>)([\s\S]*?)(<\/tspan>)/g, (_m2, open: string, content: string, close: string) => {
+      if (replacedOnce) return `${open}${close}`;
+      replacedOnce = true;
+      return `${open}${esc(ph)}${close}`;
+    });
+    if (replacedOnce) return `<text${attrs}>${newInner}</text>`;
+    return `<text${attrs}>${esc(ph)}</text>`;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 路由 3：Create Template（从参考稿蒸馏模板）
 // ---------------------------------------------------------------------------
 
 const CT_STEPS: { key: StepKey; label: string }[] = [
   { key: 'plan', label: '分析参考稿' },
-  { key: 'assets', label: '蒸馏风格' },
-  { key: 'pages', label: '撰写规范' },
-  { key: 'inspect', label: '保存模板' },
+  { key: 'assets', label: '蒸馏风格规范' },
+  { key: 'pages', label: '生成页面原型' },
+  { key: 'inspect', label: '入库模板库' },
   { key: 'export', label: '完成' },
 ];
 
@@ -436,14 +467,25 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
 
   const progress: TaskProgress = { phase: 'generating', currentPage: 0, totalPages: 0, steps: CT_STEPS.map((s) => ({ ...s, status: 'pending' })), pages: [] };
   setProgress(deps, taskId, progress);
-  updateTask(deps, taskId, { status: 'generating' });
+  updateTask(deps, taskId, {
+    status: 'generating',
+    // 任务名直接用模板名（避免「未命名任务」）；同时写入 spec 供前端显示
+    topic: params.name,
+    spec_json: JSON.stringify({
+      title: `蒸馏模板：${params.name}`,
+      format: 'ppt169',
+      pages: [{ id: 'p01', role: 'content', title: tplKind === 'deck' ? '场景方案' : '风格模板', outline: params.description || '' }],
+      images: [],
+      style: { mode: 'distilling', palette: [], typography: '', notes: '' },
+    }),
+  });
 
   try {
     // 模板蒸馏不收积分（轻量 LLM 调用）
     updateTask(deps, taskId, { credits_cost: 0 });
 
     // 1) 收集参考材料：pptx_intake 提取完整风格数据（主题色板/观测色频/字号分布/每页结构）
-    setStep(deps, taskId, 'plan', 'running', ref ? '分析参考 PPTX…' : '分析主题描述…');
+    setStep(deps, taskId, 'plan', 'running', ref ? `提取配色 / 字体 / 字号分布与页面结构（${ref.filename.slice(0, 24)}）…` : '分析主题描述…');
     let refContent = '';
     let coverSvg: string | null = null;
     let protoPages: string[] = [];
@@ -503,19 +545,22 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
         const svgDir = join(tmpWs, 'svg');
         if (existsSync(svgDir)) {
           const files = readdirSync(svgDir).filter((f) => f.endsWith('.svg')).sort();
-          // deck：前 8 页原型；style：仅封面
+          // deck：前 8 页原型（内容脱敏）；style：仅封面（原样）
           const take = tplKind === 'deck' ? files.slice(0, 8) : files.slice(0, 1);
-          protoPages = take.map((f) => readFileSync(join(svgDir, f), 'utf8').slice(0, 200000));
+          protoPages = take.map((f, fi) => {
+            const raw = readFileSync(join(svgDir, f), 'utf8').slice(0, 200000);
+            return tplKind === 'deck' ? sanitizeProto(raw, fi, take.length) : raw;
+          });
           if (protoPages.length) coverSvg = protoPages[0];
         }
       }
     } else if (ref && ref.mime.startsWith('image/')) {
       refContent = `（用户提供了一张参考图：${ref.filename}，风格描述见用户说明）`;
     }
-    setStep(deps, taskId, 'plan', 'done', '参考材料就绪');
+    setStep(deps, taskId, 'plan', 'done', '参考稿分析完成（主题色板 · 观测色频 · 字阶 · 页面结构）');
 
     // 2) LLM 蒸馏风格规范（基于结构化数据，非 SVG 片段）
-    setStep(deps, taskId, 'assets', 'running', '蒸馏风格规范…');
+    setStep(deps, taskId, 'assets', 'running', '基于真实观测数据归纳配色 / 字阶 / 布局规则…');
     const distillOut = await chatCompletion(cfg, [
       { role: 'system', content: `你是设计系统蒸馏器。根据参考 PPT 的结构化风格数据提炼可复用的模板规范。只输出 JSON：
 {
@@ -536,10 +581,10 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
       { role: 'user', content: `模板名称（用户指定）：${params.name}\n模板类型：${tplKind === 'deck' ? '场景方案（多页原型）——notes 需归纳页面角色体系（封面/目录/章节/内容/结尾各是什么布局模式）' : '风格模板'}\n${params.description ? `用途说明：${params.description}` : ''}\n${refContent ? `参考 PPT 风格数据：\n${refContent.slice(0, 30000)}` : '（无参考材料，请基于名称与用途设计合理的模板规范）'}` },
     ], { maxTokens: 4096, temperature: 0.3 });
     const distilled = extractJson<any>(distillOut);
-    setStep(deps, taskId, 'assets', 'done', '风格规范蒸馏完成');
+    setStep(deps, taskId, 'assets', 'done', '风格规范蒸馏完成（' + (tplKind === 'deck' ? '场景方案 · 含页面角色体系' : '风格模板') + '）');
 
     // 3) 写入 templates 表
-    setStep(deps, taskId, 'pages', 'running', '保存模板…');
+    setStep(deps, taskId, 'pages', 'running', tplKind === 'deck' ? '脱敏页面原型（剥离源稿内容，保留版式与配色）…' : '保存风格模板…');
     const id = randomUUID();
     const styleJson = JSON.stringify({
       mode: String(distilled.style?.mode ?? ''),
@@ -552,9 +597,9 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
       tplKind, tplKind === 'deck' && protoPages.length > 1 ? JSON.stringify(protoPages) : null,
       coverSvg, userId, Date.now(), Date.now()
     );
-    setStep(deps, taskId, 'pages', 'done', '已保存');
-    setStep(deps, taskId, 'inspect', 'done', `模板「${params.name}」已入库`);
-    setStep(deps, taskId, 'export', 'done', `模板 ID: ${id.slice(0, 8)}`);
+    setStep(deps, taskId, 'pages', 'done', tplKind === 'deck' ? `已生成 ${protoPages.length} 页脱敏原型` : '风格模板已保存');
+    setStep(deps, taskId, 'inspect', 'done', `「${params.name}」已入库模板库`);
+    setStep(deps, taskId, 'export', 'done', tplKind === 'deck' ? `场景方案 · ${protoPages.length} 页原型 · 可在创建页选用` : '风格模板 · 可在创建页选用');
 
     updateTask(deps, taskId, { status: 'done', done_at: Date.now(), error: null });
     setProgress(deps, taskId, { ...currentProgress(deps, taskId), phase: 'done', message: `模板「${params.name}」创建成功，可在创建页直接使用` });
