@@ -356,9 +356,11 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
     }
   }
 
-  // Tavily 主题研究（可选）：主题型任务且用户开启时，先搜索补充事实
+  // Tavily 主题研究（可选）：主题型任务且用户开启时，先搜索补充事实。
+  // 计费：自己的 Key 免费；用平台（继承的）Key 每次搜索 1 积分
   let researchNote = '';
   if (params.research && cfg.tavilyKey && t.topic) {
+    const usingOwnKey = cfg.tavilyKeyOwn === true;
     const p0 = currentProgress(deps, taskId);
     const st0 = p0.steps.find((x) => x.key === 'plan');
     if (st0) st0.message = '正在联网搜索补充资料…';
@@ -369,6 +371,19 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
         timeoutMs: 90000,
         env: { TAVILY_API_KEYS: cfg.tavilyKey },
       });
+      if (r.code === 0 && !usingOwnKey) {
+        // 平台 Key 搜索：1 积分/次（即时消耗，直接扣余额，不进预扣/退还体系）
+        try {
+          deps.db.prepare('UPDATE users SET credits = credits - 1 WHERE id=? AND credits >= 1').run(t.user_id);
+          deps.db.prepare('INSERT INTO credit_logs(user_id, delta, reason, task_id, created_at) VALUES (?,?,?,?,?)').run(
+            t.user_id, -1, '联网搜索（平台 Key）', taskId, Date.now()
+          );
+          updateTask(deps, taskId, { credits_cost: (getTask(deps, taskId)?.credits_cost ?? 0) + 1 });
+          log('ORCH', `任务 ${taskId} 平台 Key 搜索扣 1 积分`);
+        } catch (e: any) {
+          logError('ORCH', `任务 ${taskId} 平台搜索扣积分失败（余额不足）`, e?.message);
+        }
+      }
       if (r.code === 0) {
         let results: any[] = [];
         try { results = JSON.parse(r.stdout.slice(r.stdout.indexOf('['), r.stdout.lastIndexOf(']') + 1)) ?? []; } catch { /* keep [] */ }

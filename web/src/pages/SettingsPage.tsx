@@ -99,7 +99,10 @@ export default function SettingsPage() {
           <textarea className="h-20 w-full resize-y rounded-lg border border-neutral-200 bg-white px-3 py-2.5 font-mono text-sm outline-none focus:border-blue-400"
             placeholder={settings.hasTavilyKey ? `已保存（${settings.tavilyKeyMasked}），留空则不修改；重新填写将整体替换` : 'tvly-…\ntvly-…（app.tavily.com 免费注册，可填多个）'} value={tavilyKey} onChange={(e) => setTavilyKey(e.target.value)} />
           <p className="mt-1.5 text-xs text-neutral-400">
-            配置后创建任务时会出现「联网研究」选项：开启则 AI 在规划大纲前先搜索最新资料（时效性主题推荐开启）。
+            配置后创建任务可用「联网研究」（规划前搜索最新资料）。
+            {settings.tavilyKeyOwn
+              ? <span className="text-emerald-600">用自己的 Key 搜索，不消耗积分。</span>
+              : '用自己的 Key 搜索免费；未配置时使用平台 Key（1 积分/次搜索）。'}
             {tavilyOk === true && <span className="ml-1 text-green-600">当前 Key 有效 ✓</span>}
             {tavilyOk === false && <span className="ml-1 text-red-500">当前 Key 无效 ✗</span>}
           </p>

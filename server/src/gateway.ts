@@ -8,8 +8,9 @@ export interface GatewayConfig {
   apiKey: string;
   chatModel: string;
   imageModel: string;
-  tavilyKey: string;   // Tavily 搜索 API Key（tvly-…，可选）
+  tavilyKey: string;   // Tavily 搜索 API Key（tvly-…，多 Key 逗号分隔，可选）
   isCustom?: boolean; // 用户专属配置（免继承）
+  tavilyKeyOwn?: boolean; // true = 用户自己的 Key（搜索免费）；false = 继承平台 Key（1 积分/次）
 }
 
 /** 读取某用户的网关配置（apiKey 解密；非 admin 未配置时继承 admin 全局配置） */
@@ -44,6 +45,7 @@ export function getUserGatewayConfig(db: Db, userId: string, secretKey: string):
     imageModel: imageModel ?? '',
     tavilyKey: tavilyKey ?? '',
     isCustom: userId === 'admin' || hasOwn,
+    tavilyKeyOwn: !!own.tavilyKey, // 有自己的 Key（admin 自己的也算）
   };
 }
 

@@ -13,6 +13,7 @@ export interface Settings {
   imageModel: string;
   tavilyKeyMasked: string;
   hasTavilyKey: boolean;
+  tavilyKeyOwn?: boolean;
   isCustom?: boolean;
 }
 

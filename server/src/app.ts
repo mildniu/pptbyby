@@ -130,6 +130,7 @@ export async function buildApp(opts: AppOptions) {
         return `${keys.length} 个 Key（${maskKey(keys[0])} …）`;
       })(),
       hasTavilyKey: !!cfg.tavilyKey,
+      tavilyKeyOwn: cfg.tavilyKeyOwn ?? false,
       isCustom: cfg.isCustom,
     };
   });
