@@ -61,7 +61,10 @@ export function saveUserGatewayConfig(
     chatModel: (input.chatModel !== undefined ? input.chatModel : cur.chatModel).trim(),
     imageModel: (input.imageModel !== undefined ? input.imageModel : cur.imageModel).trim(),
     tavilyKey:
-      input.tavilyKey && input.tavilyKey.includes('*') ? cur.tavilyKey : (input.tavilyKey !== undefined ? input.tavilyKey : cur.tavilyKey).trim(),
+      input.tavilyKey && input.tavilyKey.includes('*')
+        ? cur.tavilyKey
+        : (input.tavilyKey !== undefined ? input.tavilyKey : cur.tavilyKey)
+            .split(/[\n,，\s]+/).map((k) => k.trim()).filter(Boolean).join(','),
   };
 
   const upsert = db.prepare(

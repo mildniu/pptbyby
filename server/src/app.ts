@@ -123,7 +123,12 @@ export async function buildApp(opts: AppOptions) {
       hasApiKey: !!cfg.apiKey,
       chatModel: cfg.chatModel,
       imageModel: cfg.imageModel,
-      tavilyKeyMasked: maskKey(cfg.tavilyKey),
+      tavilyKeyMasked: (() => {
+        const keys = cfg.tavilyKey.split(',').filter(Boolean);
+        if (!keys.length) return '';
+        if (keys.length === 1) return maskKey(keys[0]);
+        return `${keys.length} 个 Key（${maskKey(keys[0])} …）`;
+      })(),
       hasTavilyKey: !!cfg.tavilyKey,
       isCustom: cfg.isCustom,
     };
