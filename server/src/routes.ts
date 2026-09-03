@@ -609,6 +609,26 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
       typography: String(distilled.style?.typography ?? ''),
       notes: String(distilled.style?.notes ?? ''),
     });
+    // 程序化校正封面背景描述：LLM 可能从观测色频错误归纳封面色（如把内容页深色当封面底色），
+    // 以封面原型第一个全幅 rect 的实际 fill 为准
+    if (tplKind === 'deck' && protoPages.length) {
+      const coverSvgText = protoPages[0];
+      const bgMatch = coverSvgText.match(/<rect[^>]*width="1280"[^>]*height="720"[^>]*fill="(#[0-9A-Fa-f]{6})"/)
+        ?? coverSvgText.match(/<rect[^>]*height="720"[^>]*width="1280"[^>]*fill="(#[0-9A-Fa-f]{6})"/);
+      const realBg = bgMatch?.[1];
+      if (realBg) {
+        const rgb = [1, 3, 5].map((i) => parseInt(realBg.slice(i, i + 2), 16));
+        const isDark = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000 < 128;
+        const zh = isDark ? `深色底（${realBg}）` : `浅色底（${realBg}）`;
+        // 替换 notes 里的封面背景描述（常见模式：封面为XX底（#XXXXXX））
+        let notes = String(distilled.style?.notes ?? '');
+        notes = notes.replace(/封面为(深色|浅色|白色|白|黑)底（#[0-9A-Fa-f]{6}）/g, `封面为${zh}`)
+                     .replace(/封面(为|是)(深色|浅色|白色|白)底/g, `封面为${zh}`);
+        if (!/封面/.test(notes)) notes = `封面为${zh}；` + notes;
+        distilled.style = { ...distilled.style, notes };
+      }
+    }
+
     // deck：把原型图片素材（logo/装饰）复制到持久目录
     if (tplKind === 'deck' && Object.keys(protoAssets).length) {
       const tplAssetsDir = join(deps.dataDir, 'template-assets', id);

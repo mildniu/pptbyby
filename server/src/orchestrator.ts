@@ -285,7 +285,8 @@ JSON 结构：
 - IMAGE_MODE_RULE（优先级高于上一条）：image_mode 为 "none" 时 images 必须为空数组（纯排版，不用任何 AI 配图，用户上传素材仍可用）；为 "every" 时每页都安排 1 张配图（除结尾页可选）；为 "auto" 或缺省时按上一条智能判断。
 - palette 给 3-5 个协调的六位十六进制色（大写 #RRGGBB），含背景/主文字/强调色。
 - 若用户给了源材料，内容必须忠于材料事实，不得编造数据。
-- 若指定了模板风格约束，style 必须严格遵循模板的 mode/palette/typography，不得偏离。`;
+- 若指定了模板风格约束，style 必须严格遵循模板的 mode/palette/typography，不得偏离。
+- 模板约束中若含「封面背景色实测为 #XXXXXX（原型第1页真实底色…）」，封面底色必须用该实测值；style.notes 里若与此冲突的封面描述一律以实测为准。`;
 
 interface TemplateStyle {
   mode: string;
