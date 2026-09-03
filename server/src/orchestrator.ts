@@ -497,7 +497,7 @@ async function generatePageSvg(
     `设计规格（JSON）：${JSON.stringify({ title: spec.title, style: spec.style })}`,
     `本页规格：${JSON.stringify(page)}（第 ${pageNum}/${totalPages} 页）`,
     spec.images.length
-      ? `可用图片资源（用 <image href="../images/文件名" .../> 引用，遵守 image 规范的 preserveAspectRatio 裁切约定）：${JSON.stringify(spec.images.filter((i) => i.status === 'done').map((i) => ({ file: i.file, usage: i.usage })))}`
+      ? `可用图片资源（用 <image href="../images/文件名" .../> 引用，遵守 image 规范的 preserveAspectRatio 裁切约定）：${JSON.stringify(spec.images.filter((i) => i.status === 'done' || i.status === 'ready').map((i) => ({ file: i.file, usage: i.usage })))}`
       : '本项目没有图片资源，不要使用 <image>。',
     prevSummaries.length ? `已完成页面的简要摘要（保持视觉延续性，避免重复布局）：\n${prevSummaries.join('\n')}` : '',
     '',
@@ -673,25 +673,48 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
     mkdirSync(projectsRoot, { recursive: true });
     projectPath = await initProject(taskId.replace(/-/g, '_'), spec.format, deps.dataDir);
 
-    // deck 模板素材（logo/装饰图）复制进项目 images/，Executor 可直接引用
+    // deck 模板素材（logo/装饰图）复制进项目 images/，Executor 可直接引用（内置与自定义统一走表）
     let tplAssetNames: string[] = [];
-    if (params.templateId && !String(params.templateId).startsWith('builtin:')) {
-      const tpl = deps.db.prepare('SELECT kind, assets_json FROM templates WHERE id=?').get(params.templateId) as any;
+    const tid = (params.templateId || spec.templateId) as string | undefined;
+    if (tid) {
+      const tpl = deps.db.prepare('SELECT kind, assets_json, pages_json FROM templates WHERE id=?').get(tid) as any;
       if (tpl?.kind === 'deck' && tpl.assets_json) {
         tplAssetNames = Object.keys(JSON.parse(tpl.assets_json));
-        const srcDir = join(deps.dataDir, 'template-assets', String(params.templateId));
+        // 素材目录：内置模板 id 含 :/ 被替换为 _（与 syncBuiltinToTemplates 一致）
+        const srcDir = join(deps.dataDir, 'template-assets', tid.replace(/[:/]/g, '_'));
         const dstDir = join(projectPath, 'images');
         mkdirSync(dstDir, { recursive: true });
+        // 从原型 SVG 提取每个素材的真实使用位置（x,y,w,h），生成精确的 usage 提示
+        let protoPagesForAssets: string[] = [];
+        try { protoPagesForAssets = JSON.parse(tpl.pages_json ?? '[]'); } catch { /* ignore */ }
+        const usageOf = (fname: string): string => {
+          const uses: string[] = [];
+          for (const svg of protoPagesForAssets) {
+            for (const m of svg.matchAll(/<image[^>]*>/g)) {
+              const tag = m[0];
+              if (!tag.includes(fname)) continue;
+              const x = tag.match(/x="([\d.]+)"/)?.[1];
+              const y = tag.match(/y="([\d.]+)"/)?.[1];
+              const w = tag.match(/width="([\d.]+)"/)?.[1];
+              const h = tag.match(/height="([\d.]+)"/)?.[1];
+              if (x && y) uses.push(`(${x},${y}${w ? ` 尺寸${w}x${h ?? '?'}` : ''})`);
+            }
+          }
+          return uses.length ? `模板品牌元素（${fname}），原型中的使用位置：${uses.slice(0, 4).join('、')}——生成对应页面时用 <image href="../images/tpl_${fname}" .../> 在相同位置引用` : `模板品牌元素（${fname}），按模板原型位置使用`;
+        };
+        let copiedCount = 0;
         for (const fname of tplAssetNames) {
           const sf = join(srcDir, fname);
           if (existsSync(sf)) {
             copyFileSync(sf, join(dstDir, `tpl_${fname}`));
             spec.images.push({
-              id: `tpl_${fname}`, desc: '模板素材（logo/装饰）', usage: '模板品牌元素，按原位置使用',
+              id: `tpl_${fname}`, desc: '模板素材（logo/装饰）', usage: usageOf(fname),
               origin: 'user', file: `tpl_${fname}`, status: 'ready',
             });
+            copiedCount++;
           }
         }
+        log('ORCH', `任务 ${taskId} 模板素材复制 ${copiedCount}/${tplAssetNames.length}（${tid}）`);
       }
     }
     const projectDir = basename(projectPath);
