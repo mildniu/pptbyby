@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, Loader2, Download, Check, Pencil, Trash2, Coins, AlertTriangle,
-  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2, FileEdit, PenSquare, ExternalLink, LayoutGrid, MoveHorizontal,
+  CircleDashed, Clock, Image as ImageIcon, ListTree, FileCheck2, Package, ChevronRight, Maximize2, FileEdit, PenSquare, ExternalLink, LayoutGrid, MoveHorizontal, LayoutTemplate,
 } from 'lucide-react';
 import { api, type TaskDetail, type StepProgress } from '../lib/api';
 
@@ -168,7 +168,6 @@ export default function TaskPage() {
   const steps = prog?.steps ?? [];
   const donePages = prog?.pages?.filter((p) => p.status === 'ok').length ?? 0;
   const activeSpec = task.spec;
-  const tplName = null; // 模板名暂不展示（spec.templateId 未带名称）
 
   // 步骤面板内容
   const stepPanel = () => {
@@ -455,8 +454,13 @@ export default function TaskPage() {
       {/* 头部 */}
       <div className="mb-5 flex items-start justify-between">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold">{activeSpec?.title || task.topic || '未命名任务'}</h1>
+            {task.templateName && (
+              <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700" title={`使用模板：${task.templateName}`}>
+                <LayoutTemplate className="h-3 w-3" />{task.templateName}
+              </span>
+            )}
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
               task.status === 'done' ? 'bg-green-100 text-green-700'
               : task.status === 'failed' ? 'bg-red-100 text-red-700'

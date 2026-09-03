@@ -108,6 +108,7 @@ export interface TaskDetail {
   mode: string;
   status: string;
   topic: string;
+  templateName?: string | null;
   createdAt: number;
   doneAt: number | null;
   creditsCost: number;
@@ -125,6 +126,7 @@ export interface TaskSummary {
   mode: string;
   status: string;
   topic: string;
+  templateName?: string | null;
   created_at: number;
   done_at: number | null;
   credits_cost: number;

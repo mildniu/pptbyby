@@ -40,7 +40,10 @@ export default function HistoryPage() {
                   : <Clock className="h-4 w-4 shrink-0 text-orange-500" />}
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{t.topic || '(无主题)'}</div>
-                  <div className="text-xs text-neutral-400">{new Date(t.created_at).toLocaleString()} · {t.mode}</div>
+                  <div className="truncate text-xs text-neutral-400">
+                    {new Date(t.created_at).toLocaleString()} · {t.mode}
+                    {t.templateName && <span className="ml-1.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{t.templateName}</span>}
+                  </div>
                 </div>
                 <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs ${s.cls}`}>{s.label}</span>
                 {t.credits_cost > 0 && <span className="shrink-0 text-xs text-neutral-400">{t.credits_cost} 积分</span>}

@@ -234,9 +234,28 @@ export async function buildApp(opts: AppOptions) {
   app.get('/api/tasks', async (req, reply) => {
     const auth = requireAuth(req, reply); if (!auth) return;
     const rows = db
-      .prepare('SELECT id, mode, status, topic, created_at, done_at, credits_cost, error FROM tasks WHERE user_id=? ORDER BY created_at DESC LIMIT 100')
+      .prepare('SELECT id, mode, status, topic, created_at, done_at, credits_cost, error, spec_json FROM tasks WHERE user_id=? ORDER BY created_at DESC LIMIT 100')
       .all(auth.uid) as any[];
-    return { tasks: rows };
+    // 批量解析模板名
+    const tplIds = [...new Set(rows.map((r) => { try { return JSON.parse(r.spec_json || '{}')?.templateId; } catch { return null; } }).filter(Boolean))];
+    const tplNameMap = new Map<string, string>();
+    const builtinMap = new Map(loadBuiltinTemplates().map((b) => [b.id, `${b.name}（内置）`]));
+    for (const tid of tplIds) {
+      if (builtinMap.has(tid)) { tplNameMap.set(tid, builtinMap.get(tid)!); continue; }
+      const tpl = db.prepare('SELECT name FROM templates WHERE id=?').get(tid) as any;
+      if (tpl) tplNameMap.set(tid, tpl.name);
+    }
+    return {
+      tasks: rows.map((r) => {
+        let templateName: string | null = null;
+        try {
+          const tid = JSON.parse(r.spec_json || '{}')?.templateId;
+          templateName = tid ? (tplNameMap.get(tid) ?? null) : null;
+        } catch { /* ignore */ }
+        delete r.spec_json;
+        return { ...r, templateName };
+      }),
+    };
   });
 
   app.get('/api/tasks/:id', async (req, reply) => {
@@ -284,8 +303,21 @@ export async function buildApp(opts: AppOptions) {
       return `/media/projects/${projDir2}/exports/${file}`;
     })();
 
+    // 模板名解析（内置 / 自定义）
+    const templateName = (() => {
+      const tid = spec?.templateId;
+      if (!tid) return null;
+      if (String(tid).startsWith('builtin:')) {
+        const b = loadBuiltinTemplates().find((x) => x.id === tid);
+        return b ? `${b.name}（内置·${{ brand: '品牌', style: '风格', deck: '场景' }[b.kind] ?? ''}）` : null;
+      }
+      const tpl = db.prepare('SELECT name FROM templates WHERE id=?').get(tid) as any;
+      return tpl?.name ?? null;
+    })();
+
     return {
       id: t.id, mode: t.mode, status: t.status, topic: t.topic,
+      templateName,
       createdAt: t.created_at, doneAt: t.done_at, creditsCost: t.credits_cost, creditsHeld: t.credits_held,
       error: t.error, spec, progress, slides, images,
       downloadUrl,
@@ -623,9 +655,27 @@ export async function buildApp(opts: AppOptions) {
   app.get('/api/admin/tasks', async (req, reply) => {
     const auth = requireAdmin(req, reply); if (!auth) return;
     const rows = db
-      .prepare("SELECT t.id, t.user_id, t.mode, t.status, t.topic, t.credits_cost, t.created_at, u.username FROM tasks t LEFT JOIN users u ON u.id=t.user_id ORDER BY t.created_at DESC LIMIT 200")
+      .prepare("SELECT t.id, t.user_id, t.mode, t.status, t.topic, t.credits_cost, t.created_at, t.spec_json, u.username FROM tasks t LEFT JOIN users u ON u.id=t.user_id ORDER BY t.created_at DESC LIMIT 200")
       .all() as any[];
-    return { tasks: rows };
+    const tplIds = [...new Set(rows.map((r) => { try { return JSON.parse(r.spec_json || '{}')?.templateId; } catch { return null; } }).filter(Boolean))];
+    const tplNameMap = new Map<string, string>();
+    const builtinMap = new Map(loadBuiltinTemplates().map((b) => [b.id, `${b.name}（内置）`]));
+    for (const tid of tplIds) {
+      if (builtinMap.has(tid)) { tplNameMap.set(tid, builtinMap.get(tid)!); continue; }
+      const tpl = db.prepare('SELECT name FROM templates WHERE id=?').get(tid) as any;
+      if (tpl) tplNameMap.set(tid, tpl.name);
+    }
+    return {
+      tasks: rows.map((r) => {
+        let templateName: string | null = null;
+        try {
+          const tid = JSON.parse(r.spec_json || '{}')?.templateId;
+          templateName = tid ? (tplNameMap.get(tid) ?? null) : null;
+        } catch { /* ignore */ }
+        delete r.spec_json;
+        return { ...r, templateName };
+      }),
+    };
   });
 
   // ---------- 静态媒体（SVG 预览 / 图片 / pptx 下载 / 上传素材），路径限定在 data 下 ----------

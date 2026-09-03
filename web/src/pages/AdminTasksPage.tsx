@@ -27,6 +27,7 @@ export default function AdminTasksPage() {
           <tr>
             <th className="px-4 py-3">用户</th>
             <th className="px-4 py-3">模式</th>
+            <th className="px-4 py-3">模板</th>
             <th className="px-4 py-3">主题</th>
             <th className="px-4 py-3">状态</th>
             <th className="px-4 py-3">积分</th>
@@ -39,6 +40,7 @@ export default function AdminTasksPage() {
             <tr key={t.id} className="border-t border-neutral-100 hover:bg-neutral-50">
               <td className="px-4 py-3">{t.username ?? t.user_id}</td>
               <td className="px-4 py-3 text-neutral-500">{t.mode}</td>
+              <td className="max-w-[140px] truncate px-4 py-3 text-xs text-emerald-700" title={t.templateName ?? ''}>{t.templateName ?? '—'}</td>
               <td className="max-w-xs truncate px-4 py-3">{t.topic || '-'}</td>
               <td className="px-4 py-3">{STATUS[t.status] ?? t.status}</td>
               <td className="px-4 py-3">{t.credits_cost}</td>
