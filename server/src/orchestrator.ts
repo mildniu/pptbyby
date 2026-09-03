@@ -315,17 +315,17 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
   // 模板风格约束（自定义模板 或 vendor 内置模板 design_spec 全文）
   let templateConstraint = '';
   if (params.templateId) {
-    if (String(params.templateId).startsWith('builtin:')) {
-      // 内置模板（brands / styles / decks）：注入完整 design_spec.md
+    // 统一走 templates 表（内置模板已同步入库：spec_md + deck 原型/素材按新规则）
+    const tpl = deps.db.prepare('SELECT * FROM templates WHERE id=?').get(params.templateId) as any;
+    if (!tpl && String(params.templateId).startsWith('builtin:')) {
+      // 兜底：表未同步时直接读 pipeline 的 design_spec
       const specText = builtinSpecText(String(params.templateId));
       if (specText) {
         templateConstraint = `\n模板规范（必须严格遵循以下 design_spec 全文）：\n<template_spec>\n${specText}\n</template_spec>`;
       }
-    } else {
-      const tpl = deps.db.prepare('SELECT * FROM templates WHERE id=?').get(params.templateId) as any;
-      if (tpl) {
-        // 首选上游标准载体 design_spec.md（蒸馏产出）；老模板回退 style JSON
-        if (tpl.spec_md) {
+    } else if (tpl) {
+      // 首选上游标准载体 design_spec.md（蒸馏/内置同步均产出）；老模板回退 style JSON
+      if (tpl.spec_md) {
           let constraint = `\n模板规范（ppt-master 标准 design_spec，必须严格遵循全文）：\n<template_spec>\n${tpl.spec_md}\n</template_spec>`;
           // deck：按上游 strategist-template 契约附 Page Roster + 脱敏原型全文供 Executor 参照版式
           if ((tpl.kind ?? 'style') === 'deck' && tpl.pages_json) {
@@ -343,7 +343,6 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
           const style = JSON.parse(tpl.style_json || '{}');
           templateConstraint = `\n模板风格约束（必须严格遵循）：${tpl.name} — ${JSON.stringify(style)}`;
         }
-      }
     }
   }
 

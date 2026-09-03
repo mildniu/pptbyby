@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, mkdirSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SKILL_DIR } from './pipeline.js';
 import { log } from './logger.js';
@@ -74,11 +74,8 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
   const media = (rel: string) => mediaUrl(rel);
 
   // brands（品牌 identity：色板+字体+语气；部分品牌带 logo 素材）
-  // EXCLUDED_BRANDS：不进公共内置库的品牌（已作为私有模板入库）
-  const EXCLUDED_BRANDS = new Set(['中国电信']);
   const brandsIdx = readJson(join(tRoot, 'brands', 'brands_index.json')) ?? {};
   for (const [id, meta] of Object.entries<any>(brandsIdx)) {
-    if (EXCLUDED_BRANDS.has(id)) continue;
     const imgs = imgEntries(join(tRoot, 'brands', id, 'images'), 'image').slice(0, 4);
     out.push({
       id: `builtin:brand/${id}`,
@@ -126,11 +123,8 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
   }
 
   // decks（场景：页面原型 + 品牌素材）
-  // EXCLUDED_DECKS：不进公共内置模板库的 deck（已作为私有模板单独入库）
-  const EXCLUDED_DECKS = new Set(['hebei_telecom', '中国电信']);
   const decksIdx = readJson(join(tRoot, 'decks', 'decks_index.json')) ?? {};
   for (const [id, meta] of Object.entries<any>(decksIdx)) {
-    if (EXCLUDED_DECKS.has(id)) continue;
     const dir = join(tRoot, 'decks', id);
     const protos = imgEntries(join(dir, 'templates'), 'svg');     // 页面原型
     const assets = imgEntries(join(dir, 'images'), 'image');       // logo/横幅等素材
@@ -155,6 +149,70 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
   cache = out;
   log('TPL', `内置模板加载：brands ${Object.keys(brandsIdx).length} / styles ${Object.keys(stylesIdx).length} / decks ${Object.keys(decksIdx).length}，共 ${out.length} 个`);
   return out;
+}
+
+/** 把内置模板同步进 templates 表（幂等；deck 类带脱敏原型与素材，统一新规则） */
+export function syncBuiltinToTemplates(db: any, dataDir: string): number {
+  const tRoot = join(SKILL_DIR, 'templates');
+  const kindMap: Record<string, string> = { brand: 'brands', style: 'styles', deck: 'decks' };
+  let count = 0;
+  for (const t of loadBuiltinTemplates()) {
+    const m = t.id.match(/^builtin:(brand|style|deck)\/(.+)$/);
+    if (!m) continue;
+    const kind = m[1] as 'brand' | 'style' | 'deck';
+    const sub = kindMap[kind];
+    const specPath = join(tRoot, sub, m[2], 'templates', 'design_spec.md');
+    const specMd = existsSync(specPath) ? readFileSync(specPath, 'utf8').slice(0, 60000) : null;
+
+    // deck：原型 SVG（脱敏）+ 素材
+    let pagesJson: string | null = null;
+    let assetsJson: string | null = null;
+    let coverSvg: string | null = null;
+    if (kind === 'deck') {
+      const dir = join(tRoot, sub, m[2]);
+      const protoDir = join(dir, 'templates');
+      const protoFiles = existsSync(protoDir) ? readdirSync(protoDir).filter((f) => f.endsWith('.svg')).sort() : [];
+      if (protoFiles.length > 1) {
+        const pages = protoFiles.map((f) => readFileSync(join(protoDir, f), 'utf8').slice(0, 200000));
+        pagesJson = JSON.stringify(pages);
+        coverSvg = pages[0];
+      }
+      // 素材：deck images/ 目录
+      const imgDir = join(dir, 'images');
+      const assetFiles = existsSync(imgDir) ? readdirSync(imgDir).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)) : [];
+      if (assetFiles.length) {
+        const assets: Record<string, string> = {};
+        const dstDir = join(dataDir, 'template-assets', t.id.replace(/[:/]/g, '_'));
+        mkdirSync(dstDir, { recursive: true });
+        for (const f of assetFiles) {
+          copyFileSync(join(imgDir, f), join(dstDir, f));
+          const ext = f.split('.').pop()?.toLowerCase() ?? 'png';
+          assets[f] = ext === 'png' ? 'image/png' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/webp';
+        }
+        assetsJson = JSON.stringify(assets);
+      }
+    }
+
+    const styleJson = JSON.stringify({
+      mode: t.style.mode,
+      palette: t.style.palette,
+      typography: t.style.typography,
+      notes: t.style.notes,
+    });
+    db.prepare(`INSERT INTO templates(id, name, description, style_json, kind, pages_json, assets_json, spec_md, cover_svg, created_by, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description,
+                  style_json=excluded.style_json, kind=excluded.kind, pages_json=excluded.pages_json,
+                  assets_json=excluded.assets_json, spec_md=excluded.spec_md, cover_svg=excluded.cover_svg, updated_at=excluded.updated_at`)
+      .run(
+        t.id, t.name, t.summary.slice(0, 500), styleJson, kind,
+        pagesJson, assetsJson, specMd, coverSvg,
+        'builtin', Date.now(), Date.now()
+      );
+    count++;
+  }
+  log('TPL', `内置模板同步入库：${count} 个（含 spec_md/原型/素材，新规则）`);
+  return count;
 }
 
 /** 内置模板的 design_spec.md 全文（注入 Strategist 的约束） */

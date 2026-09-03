@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { Db } from './db.js';
 import { verifyPassword, signToken, verifyToken, maskKey } from './crypto.js';
 import { getUserGatewayConfig, saveUserGatewayConfig, clearUserGatewayConfig, listGatewayModels, testTavilyKey } from './gateway.js';
-import { loadBuiltinTemplates, builtinSpecText } from './builtinTemplates.js';
+import { loadBuiltinTemplates, builtinSpecText, syncBuiltinToTemplates } from './builtinTemplates.js';
 import { stylePreviewSvg } from './templatePreview.js';
 import { createTask, confirmTask, cancelTask, TASK_MODES, type TaskMode } from './orchestrator.js';
 import { runBeautify, runEditNative, runCreateTemplate, runImageToPptx } from './routes.js';
@@ -44,6 +44,14 @@ export async function buildApp(opts: AppOptions) {
       logError('BOOT', `任务 ${t.id} 因服务重启标记失败并退款 ${t.credits_held}`);
     }
   }
+  // 内置模板同步入库（幂等；新规则：spec_md/原型/素材）
+  try {
+    const n = syncBuiltinToTemplates(db, opts.dataDir);
+    console.log(`内置模板已同步入库：${n} 个`);
+  } catch (e: any) {
+    console.warn('内置模板同步失败（继续启动）:', e?.message);
+  }
+
   const app = Fastify({ logger: false, bodyLimit: 20 * 1024 * 1024 });
   const SECRET = opts.secretKey;
   const COOKIE = 'pptbyby_session';
