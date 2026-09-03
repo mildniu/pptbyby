@@ -719,7 +719,24 @@ export async function buildApp(opts: AppOptions) {
     const ext = abs.split('.').pop()?.toLowerCase();
     const types: Record<string, string> = { svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
     reply.header('Content-Type', types[ext ?? ''] ?? 'application/octet-stream');
-    if (ext === 'pptx') reply.header('Content-Disposition', `attachment; filename="${basename(abs)}"`);
+    if (ext === 'pptx') {
+      // 下载文件名 = 任务名（通过 result_path 反查任务，取 spec.title/topic）；
+      // 查不到（管理员跨任务访问等）回退磁盘文件名
+      let dlName = basename(abs);
+      try {
+        const task = db.prepare('SELECT topic, spec_json FROM tasks WHERE result_path=?').get(abs) as any;
+        if (task) {
+          const title = (JSON.parse(task.spec_json || '{}')?.title) || task.topic;
+          if (title) {
+            // 文件名安全化：去路径分隔符与非法字符
+            dlName = title.replace(/[\\/:*?"<>|\n\r]/g, ' ').trim().slice(0, 80) + '.pptx' || basename(abs);
+          }
+        }
+      } catch { /* 回退磁盘名 */ }
+      // RFC 5987：中文文件名需 filename* 编码，同时给 ASCII 兜底
+      const asciiFallback = dlName.replace(/[^\x20-\x7E]/g, '_');
+      reply.header('Content-Disposition', `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(dlName)}`);
+    }
     return reply.send(createReadStream(abs));
   });
 
