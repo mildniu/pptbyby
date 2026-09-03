@@ -49,15 +49,18 @@ export function runPython(script: string, args: string[], opts: { timeoutMs?: nu
   });
 }
 
-/** 质检 SVG（stage: page 需传 projectPath+pageFile；final 传 projectPath）。
- *  均走 quick-generate 契约（无 spec_lock 的项目必需，否则项目级检查报错）。
+/** 质检 SVG。按上游 quick-generate 契约：
+ *  - early：7+ 页的 P05 后早期门（检查已写全部页）
+ *  - final：全部页完成后终检（--quick-generate --canonical-authoring）
+ *  - page：单页模式（编辑器/修复轮用）
  *  报告读自 validation/ 目录 */
 export async function qualityCheck(
   target: string,
-  stage: 'page' | 'final',
+  stage: 'page' | 'early' | 'final',
   pageFile?: string,
 ): Promise<{ ok: boolean; report: any; raw: string }> {
   const args = [target, '--stage', stage, '--quick-generate'];
+  if (stage === 'final') args.push('--canonical-authoring');
   if (stage === 'page' && pageFile) args.push('--page', pageFile);
   args.push('--json');
   const r = await runPython('svg_quality_checker.py', args, { timeoutMs: 180000 });

@@ -83,17 +83,27 @@ export async function runBeautify(deps: any, taskId: string): Promise<void> {
     if (imp.code !== 0) throw new Error(`导入 PPTX 失败: ${imp.stderr.slice(-300)}`);
     setStep(deps, taskId, 'plan', 'done', '内容与身份提取完成');
 
-    // 2) 读取冻结内容契约（sources/<stem>.md）与身份
+    // 2) 上游 beautify 管线：组装 beautify_inventory（每页确定性清单），再读 summary
     const stem = basename(srcCopy).replace(/\.pptx$/i, '');
-    const contentMd = existsSync(join(projectPath, 'sources', `${stem}.md`))
-      ? readFileSync(join(projectPath, 'sources', `${stem}.md`), 'utf8')
-      : '';
+    const slideLib = readdirSync(join(projectPath, 'analysis')).find((f) => f.endsWith('.slide_library.json'));
+    if (!slideLib) throw new Error('导入未产出 slide_library（PPTX 无可读结构？）');
+    const imageManifest = existsSync(join(projectPath, 'images', 'image_manifest.json'))
+      ? join(projectPath, 'images', 'image_manifest.json') : null;
+    const invArgs = [join(projectPath, 'analysis', slideLib)];
+    if (imageManifest) invArgs.push('--images', imageManifest);
+    invArgs.push('-o', join(projectPath, 'analysis', 'beautify_inventory.json'));
+    const inv = await runPython('beautify_inventory.py', invArgs, { timeoutMs: 120000 });
+    if (inv.code !== 0) throw new Error(`beautify_inventory 组装失败: ${inv.stderr.slice(-200)}`);
+    // 摘要读取（上游：bounded reads——summary 而非全文）
+    const invSummary = await runPython('beautify_inventory.py', [join(projectPath, 'analysis', 'beautify_inventory.json'), '--summary'], { timeoutMs: 60000 });
+
     let identity: any = null;
     const idFiles = readdirSync(join(projectPath, 'analysis')).filter((f) => f.endsWith('.identity.json'));
     if (idFiles.length) {
       try { identity = JSON.parse(readFileSync(join(projectPath, 'analysis', idFiles[0]), 'utf8')); } catch { /* ignore */ }
     }
-    if (!contentMd) throw new Error('内容提取为空（PPTX 无可读文本？）');
+    const contentMd = invSummary.stdout.slice(0, 30000);
+    if (!contentMd.trim()) throw new Error('内容提取为空（PPTX 无可读文本？）');
 
     // 3) LLM 解析每页大纲（冻结措辞）
     setStep(deps, taskId, 'assets', 'running', '解析页面内容…');

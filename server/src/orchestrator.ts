@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import type { Db } from './db.js';
-import { getUserGatewayConfig, chatCompletion, generateImage, type GatewayConfig, type ChatMessage } from './gateway.js';
+import { getUserGatewayConfig, chatCompletion, type GatewayConfig, type ChatMessage } from './gateway.js';
 import { builtinSpecText } from './builtinTemplates.js';
 import { runPython, qualityCheck, initProject, SKILL_DIR } from './pipeline.js';
 import { quoteTask, CREDITS_PER_PAGE, CREDITS_PER_IMAGE } from './credits.js';
@@ -34,6 +34,8 @@ export interface ImageSpec {
   desc: string;
   usage: string;
   origin: 'ai' | 'user'; // AI 生成 / 用户上传
+  page_role?: 'hero_page' | 'local'; // 上游 image-generator 语义
+  text_policy?: 'none' | 'embedded';
   file?: string;
   status: 'pending' | 'generating' | 'done' | 'failed' | 'ready'; // user 图片直接 ready
   error?: string;
@@ -274,7 +276,7 @@ JSON 结构：
     { "id": "p02", "role": "toc", "title": "...", "outline": "..." }
   ],
   "images": [
-    { "id": "img01", "desc": "生成这张图的英文提示词，具体、有画面感", "usage": "p01 封面全幅背景 hero 图" }
+    { "id": "img01", "desc": "图像主题与视觉内容描述（英文散文，具体视觉名词，不含布局指令）", "usage": "p01 封面 hero 图（page_role: hero_page）", "page_role": "hero_page|local", "text_policy": "none|embedded" }
   ]
 }
 
@@ -457,17 +459,26 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
 const EXECUTOR_SYSTEM_CACHE = { content: '' };
 export function executorSystemPrompt(): string {
   if (!EXECUTOR_SYSTEM_CACHE.content) {
+    // 按 ppt-master 上游 quick-generate §3「Direct SVG Authoring」的权威文件批次：
+    // 核心批次 = shared-standards-core + executor-base + semantic-svg + preset-shape-vocabulary（完整读）；
+    // svg-effects 是 executor-base 路由触发的条件模块（视觉作业超出日常块时）——附上供按需引用。
     EXECUTOR_SYSTEM_CACHE.content = [
-      '你是一位顶级信息设计执行者（Executor）。你按照项目规范逐页手写 SVG。以下是必须严格遵守的技术规范文档：',
+      '你是 ppt-master 的 Executor（执行者）。按项目规范逐页手写 SVG。以下是必须严格遵守的技术规范文档（与上游 quick-generate 的核心批次一致）：',
       '',
-      '=== 核心规范（shared-standards-core.md）===',
+      '=== 共享核心规范（shared-standards-core.md）===',
       loadRef('shared-standards-core.md'),
       '',
-      '=== 效果与几何规范（svg-effects.md）===',
-      loadRef('svg-effects.md'),
-      '',
-      '=== 执行者工作手册（executor-base.md）===',
+      '=== 执行者核心手册（executor-base.md）===',
       loadRef('executor-base.md'),
+      '',
+      '=== 语义标记（semantic-svg.md）===',
+      loadRef('semantic-svg.md'),
+      '',
+      '=== 预设形状词汇表（preset-shape-vocabulary.md）===',
+      loadRef('preset-shape-vocabulary.md'),
+      '',
+      '=== 高级效果与几何（svg-effects.md；executor-base 路由触发时使用）===',
+      loadRef('svg-effects.md'),
     ].join('\n');
   }
   return EXECUTOR_SYSTEM_CACHE.content;
@@ -546,28 +557,74 @@ async function prepareAssets(
   }
   const userCount = userAssets.length;
 
-  // 2) AI 生成图
+  // 2) AI 生成图：上游 image-generator §6 manifest 模式（--manifest 批量执行是上游标准路径，
+  //    同时避开单次模式长 prompt 的 argv 边界——workflow_transcript 把长参数当路径 stat 会崩）
   let aiDone = 0;
   const aiImgs = spec.images.filter((im) => im.origin !== 'user');
-  for (const img of aiImgs) {
-    if (img.status === 'done' || img.status === 'ready') continue;
-    img.status = 'generating';
-    setStep(deps, taskId, 'assets', 'running', `生成配图 ${aiDone + 1}/${aiImgs.length}：${img.usage}`);
+  const pendingImgs = aiImgs.filter((im) => im.status !== 'done' && im.status !== 'ready');
+  if (pendingImgs.length) {
+    const deckColors = (spec.style.palette ?? []);
+    // 提示词按上游 §4 模板组装：主题 + deck 色彩行为 + text_policy 硬规则 + 容器注记
+    const manifest = {
+      project: taskId.replace(/-/g, '_'),
+      generated_at: new Date().toISOString(),
+      deck_rendering: 'editorial-illustration',
+      color_scheme: {
+        background: deckColors[0] ?? '#FFFFFF',
+        primary: deckColors[1] ?? '#1A1A1A',
+        accent: deckColors[2] ?? '#C0392B',
+      },
+      items: pendingImgs.map((img) => ({
+        filename: `${img.id}.png`,
+        purpose: img.usage,
+        page_role: img.page_role ?? 'local',
+        text_policy: img.text_policy ?? 'none',
+        aspect_ratio: '16:9',
+        prompt: [
+          img.desc,
+          `Deck color behavior: core deck colors ${deckColors.slice(0, 4).join(', ')} anchor the palette — background dominates the field, primary carries main forms, accents stay scarce; Color values (HEX codes) and color names are rendering guidance only — do NOT display HEX codes, color names, or palette labels as visible text anywhere in the image.`,
+          (img.text_policy ?? 'none') === 'embedded'
+            ? 'Stable in-figure labels are part of the artwork; authoritative deck titles stay as SVG overlay, not baked in.'
+            : 'NO text of any kind anywhere in the image — no letters, numbers, signs, watermarks, labels, or written symbols.',
+          `Composed as a 1536x864px image for ${img.page_role ?? 'local'} use${img.page_role === 'hero_page' ? ', reserving space for SVG overlay of the deck title' : ''}.`,
+        ].join('\n'),
+        alt_text: img.usage,
+        status: 'Pending',
+      })),
+    };
+    const manifestPath = join(imgDir, 'image_prompts.json');
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    setStep(deps, taskId, 'assets', 'running', `生成配图（上游 manifest 模式，${pendingImgs.length} 张）`);
     updateTask(deps, taskId, { spec_json: JSON.stringify(spec) });
+    const gen = await runPython('image_gen.py', ['--manifest', manifestPath, '--backend', 'openai'], {
+      timeoutMs: 300000 * Math.max(1, Math.ceil(pendingImgs.length / 2)),
+      env: {
+        OPENAI_API_KEY: cfg.apiKey,
+        OPENAI_BASE_URL: cfg.baseUrl,
+        OPENAI_MODEL: cfg.imageModel,
+        OPENAI_SIZE_PRESET: 'auto',
+        OPENAI_RESPONSE_FORMAT: 'auto',
+      },
+    });
+    // 读回 manifest 状态（image_gen 会把每项 status 写回）
     try {
-      const b64 = await generateImage(cfg, img.desc, { size: '1536x864' });
-      const file = `${img.id}.png`;
-      writeFileSync(join(imgDir, file), Buffer.from(b64, 'base64'));
-      img.file = file;
-      img.status = 'done';
-      aiDone++;
-      log('ORCH', `任务 ${taskId} 图片 ${img.id} 生成成功`);
+      const result = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      for (const item of result.items ?? []) {
+        const img = pendingImgs.find((x) => `${x.id}.png` === item.filename);
+        if (!img) continue;
+        if (existsSync(join(imgDir, item.filename))) {
+          img.file = item.filename;
+          img.status = 'done';
+        } else {
+          img.status = 'failed';
+          img.error = String(item.error ?? item.status ?? '生成失败').slice(0, 300);
+        }
+      }
     } catch (e: any) {
-      img.status = 'failed';
-      img.error = String(e?.message ?? e);
-      logError('ORCH', `任务 ${taskId} 图片 ${img.id} 生成失败`, img.error);
-      // 图片失败不阻断流程，SVG 阶段会拿不到该资源从而使用占位/纯排版方案
+      logError('ORCH', `任务 ${taskId} manifest 读回失败`, e?.message);
     }
+    aiDone = aiImgs.filter((x) => x.status === 'done').length;
+    log('ORCH', `任务 ${taskId} manifest 生图完成 ${aiDone}/${aiImgs.length}（exit ${gen.code}）`);
   }
 
   const okAssets = spec.images.filter((im) => im.status === 'done' || im.status === 'ready').length;
@@ -575,7 +632,7 @@ async function prepareAssets(
   if (userCount) parts.push(`含用户上传 ${userCount} 张`);
   const failed = aiImgs.length - aiDone;
   if (failed > 0) parts.push(`${failed} 张生成失败（跳过）`);
-  setStep(deps, taskId, 'assets', okAssets || !aiImgs.length ? 'done' : 'done', parts.join('，'));
+  setStep(deps, taskId, 'assets', 'done', parts.join('，'));
   updateTask(deps, taskId, { spec_json: JSON.stringify(spec) });
 }
 
@@ -669,25 +726,34 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
       const svgFile = join(svgDir, `slide_${String(pageNum).padStart(2, '0')}.svg`);
       let ok = false;
       let lastErr = '';
+      // 上游 quick-generate 契约：逐页生成中不跑 checker（gate 只在 early/final 点）；
+      // 此处仅对生成本身做基础设施级重试（网络/解析异常）
       for (let attempt = 0; attempt < 3 && !ok; attempt++) {
         try {
           const svg = await generatePageSvg(cfg, spec, page, pageNum, total, prevSummaries, attempt > 0 ? lastErr : undefined);
           writeFileSync(svgFile, svg);
-          // 单页即时质检（page 阶段，quick-generate 契约）
-          const check = await qualityCheck(projectPath, 'page', `slide_${String(pageNum).padStart(2, '0')}.svg`);
-          if (check.ok) {
-            ok = true;
-            if (attempt > 0) pagesProgress[i].attempts!.push(`第 ${attempt + 1} 次尝试通过（修复了前次错误）`);
-          } else {
-            lastErr = summarizeCheckErrors(check);
-            pagesProgress[i].attempts!.push(`第 ${attempt + 1} 次质检未过：${lastErr.slice(0, 200)}`);
-            log('ORCH', `任务 ${taskId} 第 ${pageNum} 页质检未过（第 ${attempt + 1} 次）：${lastErr.slice(0, 200)}`);
-            pagesProgress[i].retries = attempt + 1;
+          ok = true;
+          if (attempt > 0) {
+            pagesProgress[i].retries = attempt;
+            pagesProgress[i].attempts!.push(`第 ${attempt + 1} 次尝试成功`);
           }
         } catch (e: any) {
           lastErr = String(e?.message ?? e);
-          pagesProgress[i].attempts!.push(`第 ${attempt + 1} 次异常：${lastErr.slice(0, 200)}`);
+          pagesProgress[i].attempts!.push(`第 ${attempt + 1} 次生成异常：${lastErr.slice(0, 200)}`);
           logError('ORCH', `任务 ${taskId} 第 ${pageNum} 页生成异常`, lastErr);
+          pagesProgress[i].retries = attempt + 1;
+        }
+      }
+      // 上游 early gate：7+ 页时 P05 后、P06 前跑 --stage early 并一轮修复
+      if (total >= 7 && pageNum === 5) {
+        setStep(deps, taskId, 'pages', 'running', '早期质量门（P05 后 early gate，上游契约）…');
+        const earlyCheck = await qualityCheck(projectPath, 'early');
+        if (!earlyCheck.ok) {
+          log('ORCH', `任务 ${taskId} early gate 发现错误，修复一轮`);
+          setStep(deps, taskId, 'pages', 'running', 'early gate 发现问题，修复一轮…');
+          await repairRound(deps, taskId, cfg, spec, svgDir, pagesProgress, earlyCheck);
+          const recheck = await qualityCheck(projectPath, 'early');
+          if (!recheck.ok) log('ORCH', `任务 ${taskId} early gate 修复后仍有问题（final gate 处理）`);
         }
       }
       if (!ok && existsSync(svgFile) === false) {
@@ -711,8 +777,8 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
     }
     setStep(deps, taskId, 'pages', 'done', `${okPages}/${total} 页完成${total - okPages ? `，${total - okPages} 页失败` : ''}`);
 
-    // 3) 终检（quick-generate 契约：--stage final 必须过），失败则带错误修复并复检，最多 2 轮
-    setStep(deps, taskId, 'inspect', 'running', '质量终检…');
+    // 3) 终检（上游契约：--quick-generate --canonical-authoring --stage final），失败则带错误修复并复检，最多 2 轮
+    setStep(deps, taskId, 'inspect', 'running', '质量终检（canonical-authoring）…');
     let finalCheck = await qualityCheck(projectPath, 'final');
     let inspectLog: string[] = [];
     for (let round = 0; round < 2 && !finalCheck.ok; round++) {
