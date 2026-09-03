@@ -576,29 +576,74 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
     }
     setStep(deps, taskId, 'plan', 'done', '参考稿分析完成（主题色板 · 观测色频 · 字阶 · 页面结构）');
 
-    // 2) LLM 蒸馏风格规范（基于结构化数据，非 SVG 片段）
-    setStep(deps, taskId, 'assets', 'running', '基于真实观测数据归纳配色 / 字阶 / 布局规则…');
+    // 2) LLM 蒸馏：按 ppt-master 上游标准格式产出 design_spec.md（模板的标准载体）
+    //    schema 参照 skills/ppt-master/templates/decks/中汽研/templates/design_spec.md
+    setStep(deps, taskId, 'assets', 'running', '按 ppt-master 模板规范蒸馏 design_spec…');
+    const tplId = params.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'custom_deck';
+    const pageCount = tplKind === 'deck' ? Math.min(protoPages.length, 8) : 0;
     const distillOut = await chatCompletion(cfg, [
-      { role: 'system', content: `你是设计系统蒸馏器。根据参考 PPT 的结构化风格数据提炼可复用的模板规范。只输出 JSON：
-{
-  "name": "模板名",
-  "description": "一句话适用场景",
-  "style": {
-    "mode": "视觉模式标识（如 brand:xxx / dark-data / swiss-grid）",
-    "palette": ["#RRGGBB", ...3-6 个],
-    "typography": "字体与字阶策略（含具体字号档位）",
-    "notes": "跨页一致性规则（motif、强调色用法、间距纪律、页面结构模式等，200字内）"
-  }
-}
+      { role: 'system', content: `你是 ppt-master 模板系统的 Template_Designer。根据参考 PPT 的结构化数据，按项目标准 schema 撰写模板的 design_spec.md。只输出 markdown 全文（YAML frontmatter + 各 section），不要输出其他文字。
+
+模板 schema（严格遵循）：
+---
+${tplKind === 'deck' ? `${tplKind}_id: ${tplId}` : `style_id: ${tplId}`}
+kind: ${tplKind}
+category: brand | general | scenario | government | special（按用途判断）
+summary: <一句话：可复用的演示场景族与预期效果>
+keywords: [<3-5 个标签>]
+primary_color: "#XXXXXX"
+canvas_format: ppt169
+canvas_width: 1280
+canvas_height: 720
+canvas_viewbox: "0 0 1280 720"
+replication_mode: standard
+${tplKind === 'deck' ? 'native_structure_mode: structured\npage_count: ' + pageCount : ''}
+---
+
+# <模板名> — Design Specification
+
+## I. Template Overview
+| 应用情境 | 定义 |（表格：可复用演示场景族 / 目标受众与预期效果 / 讲解与阅读假设 / 代表性叙事页面角色）
+
+## II. Color Scheme
+| 角色 | 色值 | 应用 |（表格：主色/底色/文字/强调/面板等，每个色注明用在哪）
+
+## III. Typography
+| 角色 | 字体栈 | 应用 |（表格）
+
+## IV. Signature Design Elements
+（标志性设计元素：页眉/标题条/章节标识/页码等跨页一致的结构元素，逐条列出）
+
+${tplKind === 'deck' ? `## V. Page Roster
+| 文件 | 版式角色 | 视觉特征 | 可复用槽位 |（表格，每行对应一页原型：01_cover.svg/02_toc.svg/03_chapter.svg/04_content.svg/05_ending.svg 按实际页数）
+
+## VI. Assets
+| 文件 | 用途 |（原型引用的图片素材，没有则省略本节）` : '（风格模板无 Page Roster/Assets 节）'}
 
 硬性要求：
-- palette 必须来自「实际观测」的高频色（含背景/正文/强调色），不得凭空创造；
-- typography 必须基于观测的字体与字号分布归纳字阶档位；
-- notes 要描述真实观察到的页面结构模式（标题条位置、卡片/网格用法、强调色用在哪类元素上）。` },
-      { role: 'user', content: `模板名称（用户指定）：${params.name}\n模板类型：${tplKind === 'deck' ? '场景方案（多页原型）——notes 需归纳页面角色体系（封面/目录/章节/内容/结尾各是什么布局模式）' : '风格模板'}\n${params.description ? `用途说明：${params.description}` : ''}\n${refContent ? `参考 PPT 风格数据：\n${refContent.slice(0, 30000)}` : '（无参考材料，请基于名称与用途设计合理的模板规范）'}` },
-    ], { maxTokens: 4096, temperature: 0.3 });
-    const distilled = extractJson<any>(distillOut);
-    setStep(deps, taskId, 'assets', 'done', '风格规范蒸馏完成（' + (tplKind === 'deck' ? '场景方案 · 含页面角色体系' : '风格模板') + '）');
+- Color Scheme 的色值必须来自「实际观测」的高频色，逐色注明真实用途；
+- Typography 基于观测字体与字号分布归纳档位；
+- Signature Design Elements 描述真实观察到的结构模式（标题条位置/卡片网格用法/强调色用在什么元素上）；
+- Page Roster 的视觉特征描述各页原型的真实版式（基于页面结构数据推断）；
+- 全部用中文撰写（frontmatter 的枚举值除外）。` },
+      { role: 'user', content: `模板名称（用户指定）：${params.name}\n${params.description ? `用途说明：${params.description}` : ''}\n${refContent ? `参考 PPT 结构化数据：\n${refContent.slice(0, 30000)}` : '（无参考材料，请基于名称与用途设计合理的模板规范）'}` },
+    ], { maxTokens: 8192, temperature: 0.3 });
+    const specMd = distillOut.includes('---') ? distillOut.slice(distillOut.indexOf('---')).trim() : distillOut.trim();
+    setStep(deps, taskId, 'assets', 'done', 'design_spec 已蒸馏（上游标准格式）');
+
+    // 从 spec_md 解析回 style JSON（保持旧字段兼容：palette/typography/notes 供 UI 展示）
+    const fmColors = [...specMd.matchAll(/#[0-9A-Fa-f]{6}/g)].map((m) => m[0].toUpperCase());
+    const typographySec = specMd.split('## III. Typography')[1]?.split('\n## ')[0] ?? '';
+    const signatureSec = specMd.split('## IV. Signature Design Elements')[1]?.split('\n## ')[0] ?? '';
+    const distilled = {
+      description: (specMd.match(/^summary:\s*(.+)$/m) || [])[1] ?? params.description ?? '',
+      style: {
+        mode: `${tplKind}:${tplId}`,
+        palette: [...new Set(fmColors)].slice(0, 8),
+        typography: typographySec.trim().slice(0, 300),
+        notes: signatureSec.trim().slice(0, 600),
+      },
+    };
 
     // 3) 写入 templates 表
     setStep(deps, taskId, 'pages', 'running', tplKind === 'deck' ? '脱敏页面原型（剥离源稿内容，保留版式与配色）…' : '保存风格模板…');
@@ -639,10 +684,11 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
         if (existsSync(srcF)) copyFileSync(srcF, join(tplAssetsDir, fname));
       }
     }
-    deps.db.prepare('INSERT INTO templates(id, name, description, style_json, kind, pages_json, assets_json, cover_svg, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(
+    deps.db.prepare('INSERT INTO templates(id, name, description, style_json, kind, pages_json, assets_json, spec_md, cover_svg, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(
       id, params.name, String(distilled.description ?? params.description ?? '').slice(0, 500), styleJson,
       tplKind, tplKind === 'deck' && protoPages.length > 1 ? JSON.stringify(protoPages) : null,
       tplKind === 'deck' && Object.keys(protoAssets).length ? JSON.stringify(protoAssets) : null,
+      specMd.slice(0, 60000),
       coverSvg, userId, Date.now(), Date.now()
     );
     setStep(deps, taskId, 'pages', 'done', tplKind === 'deck' ? `已生成 ${protoPages.length} 页脱敏原型` : '风格模板已保存');
