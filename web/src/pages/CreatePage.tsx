@@ -37,7 +37,7 @@ const MODES = [
 const KIND_LABEL: Record<string, string> = { brand: '品牌', style: '风格', deck: '场景' };
 
 const PAGE_OPTS: Option[] = [
-  { value: '0', label: 'AI 定页数' },
+  { value: '0', label: '页数 AI 定' },
   ...[5, 6, 8, 10, 12, 15, 20, 30].map((n) => ({ value: String(n), label: `${n} 页` })),
 ];
 
@@ -117,7 +117,7 @@ export default function CreatePage() {
 
   // 模板选项：AI 适配置顶 + 我的 + 内置（场景→品牌→风格）
   const tplOptions: Option[] = [
-    { value: 'auto', label: 'AI 适配' },
+    { value: 'auto', label: '模板 AI 定' },
     ...myTemplates.map((t) => ({ value: t.id, label: t.name, badge: '我的' })),
     ...(['deck', 'brand', 'style'] as const).flatMap((k) =>
       builtin.filter((b) => b.kind === k).map((b) => ({ value: b.id, label: b.name, badge: KIND_LABEL[k] }))),
@@ -250,17 +250,7 @@ export default function CreatePage() {
           </details>
         )}
 
-        {/* 联网研究开关（主输入区直接可见；平台 Key 或自己的 Key 均可，始终可开） */}
-        {isGenMode && (
-          <label
-            className="mx-2 mt-2 flex cursor-pointer select-none items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-1.5 text-xs text-blue-700"
-            title="规划前先搜索最新资料补充事实（时效性主题推荐开启）"
-            onClick={() => setResearch(!research)}
-          >
-            <input type="checkbox" checked={research} onChange={() => {}} className="accent-blue-500" />
-            <Globe className="h-3.5 w-3.5" />联网研究{hasTavily ? '' : '（平台 Key，1 积分/次搜索）'}：规划前搜索最新资料
-          </label>
-        )}
+
 
         {/* 底部控制栏 */}
         <div className="mt-2.5 flex flex-col items-stretch justify-between gap-2.5 sm:flex-row sm:items-center">
@@ -298,6 +288,18 @@ export default function CreatePage() {
                 <PillSelect value={language} options={LANG_OPTS} onChange={setLanguage} />
                 <PillSelect value={imageMode} options={IMAGE_MODE_OPTS} onChange={setImageMode} />
                 <PillSelect value={templateId} options={tplOptions} onChange={setTemplateId} wide />
+                <button
+                  type="button"
+                  title={hasTavily ? '规划前先搜索最新资料（用自己的 Key 免费）' : '规划前先搜索最新资料（平台 Key，1 积分/次搜索）'}
+                  onClick={() => setResearch(!research)}
+                  className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors ${
+                    research
+                      ? 'border-blue-300 bg-blue-50 font-medium text-blue-700'
+                      : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300'
+                  }`}
+                >
+                  <Globe className="h-3.5 w-3.5" />联网研究
+                </button>
               </>
             )}
             {!isGenMode && mode !== 'create_template' && (
