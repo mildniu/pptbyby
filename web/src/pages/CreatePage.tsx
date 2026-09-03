@@ -247,12 +247,25 @@ export default function CreatePage() {
               placeholder="粘贴报告 / 文章 / 笔记内容…"
               className="mt-2 h-28 w-full resize-y rounded-lg border border-neutral-100 bg-neutral-50 px-3 py-2 text-sm outline-none focus:border-orange-300"
             />
-            {hasTavily && (
-              <label className="mt-2 flex cursor-pointer select-none items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-1.5 text-xs text-blue-700">
-                <input type="checkbox" checked={research} onChange={(e) => setResearch(e.target.checked)} className="accent-blue-500" />
-                <Globe className="h-3.5 w-3.5" />联网研究（Tavily）：规划前搜索最新资料
-              </label>
-            )}
+            <label
+              className={`mt-2 flex select-none items-center gap-2 rounded-lg border px-3 py-1.5 text-xs ${
+                hasTavily
+                  ? 'cursor-pointer border-blue-100 bg-blue-50/50 text-blue-700'
+                  : 'cursor-not-allowed border-neutral-100 bg-neutral-50 text-neutral-400'
+              }`}
+              title={hasTavily ? '规划前先搜索最新资料补充事实' : '需先在「设置」中填写 Tavily API Key'}
+              onClick={(e) => {
+                e.preventDefault();
+                if (!hasTavily) {
+                  if (confirm('联网研究需要 Tavily API Key（免费注册：app.tavily.com）。现在去「设置」页配置？')) nav('/settings');
+                  return;
+                }
+                setResearch(!research);
+              }}
+            >
+              <input type="checkbox" checked={research && hasTavily} onChange={() => {}} className="accent-blue-500" disabled={!hasTavily} />
+              <Globe className="h-3.5 w-3.5" />联网研究（Tavily）：规划前搜索最新资料{hasTavily ? '' : ' · 未配置 Key'}
+            </label>
           </details>
         )}
 
