@@ -326,11 +326,8 @@ export default function CreatePage() {
             )}
           </div>
 
-          {/* 积分提示 + 提交（独立行右对齐，避免与选择器挤压重叠） */}
-          <div className="flex items-center justify-end gap-3">
-            <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-0.5 text-[11px] font-medium text-neutral-600">
-              {mode === 'create_template' ? '免费' : isGenMode ? (pages === '0' ? 'AI 定页数计费' : `${pages}+ 积分`) : '按页计费'}
-            </span>
+          {/* 提交（独立行右对齐；计费信息已在底部说明行，不放徽章） */}
+          <div className="flex items-center justify-end">
             <button
               type="button"
               onClick={submit}
