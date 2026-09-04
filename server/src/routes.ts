@@ -657,6 +657,46 @@ ${tplKind === 'deck' ? `## V. Page Roster
     const specMd = distillOut.includes('---') ? distillOut.slice(distillOut.indexOf('---')).trim() : distillOut.trim();
     setStep(deps, taskId, 'assets', 'done', 'design_spec 已蒸馏（上游标准格式）');
 
+    // 上游 create-deck standard 模式：按 Page Roster 逐页创作「槽位化原型 SVG」
+    // （{{VAR}} 占位、通用化版式——不是源页拷贝；源页仅作版式参考）
+    if (tplKind === 'deck' && protoPages.length) {
+      setStep(deps, taskId, 'pages', 'running', `创作槽位化原型（${Math.min(protoPages.length, 8)} 页）…`);
+      const slotProtos: string[] = [];
+      for (let pi = 0; pi < Math.min(protoPages.length, 8); pi++) {
+        const rosterRow = (() => {
+          const pr = specMd.split('## V. Page Roster')[1] ?? '';
+          const rows = pr.split('\n').filter((l) => l.startsWith('|') && l.includes('.svg'));
+          return rows[pi] ?? '';
+        })();
+        try {
+          const protoOut = await chatCompletion(cfg, [
+            { role: 'system', content: executorSystemPrompt() },
+            { role: 'user', content: `你是 ppt-master 的 Template_Designer，为 deck 模板创作第 ${pi + 1} 页的「槽位化原型 SVG」。
+
+要求（上游 create-deck standard 模式）：
+- 这不是某具体内容的页面，而是可复用版式的规范表达：文本一律用槽位占位符 {{TITLE}} {{SUBTITLE}} {{DATE}} {{SECTION_NAME}} {{PAGE_TITLE}} {{ITEM_1}} {{ITEM_2}} {{METRIC_1}} 等（按版式需要命名）
+- 版式参考（源稿对应页的结构，脱敏后）；Page Roster 该行要求：${rosterRow}
+- 配色/字体严格遵循下方 design_spec 的 Color Scheme 与 Typography
+- 装饰元素（页眉条/分隔线/卡片框/背景）直接画出；图片素材引用 ../images/tpl_<文件名>（若 design_spec Assets 表列出且该页需要）
+- 输出：只输出完整 SVG（1280×720），根元素带 data-pptx-page-role；不要任何解释
+
+=== design_spec ===
+${specMd.slice(0, 8000)}
+
+=== 源稿该页版式参考（脱敏） ===
+${protoPages[pi].slice(0, 10000)}` },
+          ], { maxTokens: 16384, temperature: 0.4 });
+          slotProtos.push(extractSvg(protoOut));
+        } catch (e: any) {
+          logError('ROUTE', `任务 ${taskId} 槽位原型第 ${pi + 1} 页创作失败，用源页脱敏版`, e?.message);
+          slotProtos.push(protoPages[pi]);
+        }
+        setStep(deps, taskId, 'pages', 'running', `创作槽位化原型 ${pi + 1}/${Math.min(protoPages.length, 8)}…`);
+      }
+      protoPages = slotProtos;
+      if (protoPages.length) coverSvg = protoPages[0];
+    }
+
     // 从 spec_md 解析回 style JSON（保持旧字段兼容：palette/typography/notes 供 UI 展示）
     const fmColors = [...specMd.matchAll(/#[0-9A-Fa-f]{6}/g)].map((m) => m[0].toUpperCase());
     const typographySec = specMd.split('## III. Typography')[1]?.split('\n## ')[0] ?? '';

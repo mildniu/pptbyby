@@ -346,7 +346,7 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
               const masterBlock = masterElements.size
                 ? `\n\n## 品牌页眉/固定元素（每页必须原样包含，不得省略/改动位置/改字号）\n${[...masterElements].join('\n')}`
                 : '';
-              constraint += `\n\n## Page Roster（页面角色与版式，规划时按此分配页面）\n${roster}\n\n## 原型 SVG（脱敏版式参考；生成页面须遵循对应原型的版式结构与视觉元素，内容用新主题）：\n${protos}${masterBlock}`;
+              constraint += `\n\n## Page Roster（页面角色与版式，规划时按此分配页面）\n${roster}\n\n## 原型 SVG（模板的槽位化版式——{{VAR}} 是内容槽位；生成页面须遵循对应原型的版式结构与视觉元素，把槽位替换为新主题的实际内容）：\n${protos}${masterBlock}`;
             } catch { /* ignore */ }
           }
           templateConstraint = constraint;
