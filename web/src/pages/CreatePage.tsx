@@ -264,80 +264,76 @@ export default function CreatePage() {
 
 
 
-        {/* 底部控制栏：选择器行（可换行）+ 操作行（积分/提交）分两行，窄屏不挤压 */}
-        <div className="mt-2.5 flex flex-col gap-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-2">
-            {/* 上传按钮（语义随模式） */}
-            <input ref={fileRef} type="file"
-              accept={mode === 'beautify' || mode === 'edit_native' ? '.pptx' : mode === 'create_template' ? '.pptx,image/*' : 'image/*'}
-              multiple={!(mode === 'beautify' || mode === 'edit_native')}
-              hidden
-              onChange={(e) => {
-                const kind = mode === 'image_to_pptx' ? 'shots' : isGenMode ? 'image' : 'pptx';
-                if (e.target.files) (kind === 'shots' ? shots : kind === 'image' ? assets : srcFile).upload(e.target.files, kind as any);
-                e.target.value = '';
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-neutral-600 transition hover:bg-neutral-100"
-              title={
-                isGenMode ? `上传图片素材（最多 10 张，AI 参考使用）`
-                : mode === 'image_to_pptx' ? '上传页面截图（每张一页）'
-                : mode === 'create_template' ? '上传参考 PPTX / 品牌图'
-                : '上传 PPTX'
-              }
-            >
-              <Upload size={18} />
-            </button>
+        {/* 底部控制栏：单行——选择器 + 提交按钮（ml-auto），不留空白行 */}
+        <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-2 max-sm:overflow-x-auto max-sm:pb-1">
+          {/* 上传按钮（语义随模式） */}
+          <input ref={fileRef} type="file"
+            accept={mode === 'beautify' || mode === 'edit_native' ? '.pptx' : mode === 'create_template' ? '.pptx,image/*' : 'image/*'}
+            multiple={!(mode === 'beautify' || mode === 'edit_native')}
+            hidden
+            onChange={(e) => {
+              const kind = mode === 'image_to_pptx' ? 'shots' : isGenMode ? 'image' : 'pptx';
+              if (e.target.files) (kind === 'shots' ? shots : kind === 'image' ? assets : srcFile).upload(e.target.files, kind as any);
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-neutral-600 transition hover:bg-neutral-100"
+            title={
+              isGenMode ? `上传图片素材（最多 10 张，AI 参考使用）`
+              : mode === 'image_to_pptx' ? '上传页面截图（每张一页）'
+              : mode === 'create_template' ? '上传参考 PPTX / 品牌图'
+              : '上传 PPTX'
+            }
+          >
+            <Upload size={18} />
+          </button>
 
-            {/* 模式专属选择器（行内药丸） */}
-            {isGenMode && (
-              <>
-                <PillSelect value={pages} options={PAGE_OPTS} onChange={setPages} />
-                <PillSelect value={format} options={FORMAT_OPTS} onChange={setFormat} />
-                <PillSelect value={language} options={LANG_OPTS} onChange={setLanguage} />
-                <PillSelect value={imageMode} options={IMAGE_MODE_OPTS} onChange={setImageMode} />
-                <PillSelect value={templateId} options={tplOptions} onChange={setTemplateId} />
-                <button
-                  type="button"
-                  title={hasTavily ? '规划前先搜索最新资料（用自己的 Key 免费）' : '规划前先搜索最新资料（平台 Key，1 积分/次搜索）'}
-                  onClick={() => setResearch(!research)}
-                  className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors ${
-                    research
-                      ? 'border-blue-300 bg-blue-50 font-medium text-blue-700'
-                      : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300'
-                  }`}
-                >
-                  <Globe className="h-3.5 w-3.5" />联网研究
-                </button>
-              </>
-            )}
-            {!isGenMode && mode !== 'create_template' && (
-              <span className="ml-1 text-xs text-neutral-400">
-                {mode === 'beautify' && (srcFile.pptx ? `${srcFile.pptx.filename} · 1:1 保内容重排` : '请上传 PPTX →')}
-                {mode === 'edit_native' && (srcFile.pptx ? `${srcFile.pptx.filename} · 只改指令命中的页` : '请上传 PPTX →')}
-                {mode === 'image_to_pptx' && (shots.items.length ? `${shots.items.length} 张截图 · 按序重建` : '请上传截图 →')}
-              </span>
-            )}
-            {mode === 'create_template' && (
-              <span className="ml-1 text-xs text-neutral-400">{srcFile.pptx ? `参考稿：${srcFile.pptx.filename}` : '参考稿可选 · 免费'}</span>
-            )}
-          </div>
+          {/* 模式专属选择器（行内药丸） */}
+          {isGenMode && (
+            <>
+              <PillSelect value={pages} options={PAGE_OPTS} onChange={setPages} />
+              <PillSelect value={format} options={FORMAT_OPTS} onChange={setFormat} />
+              <PillSelect value={language} options={LANG_OPTS} onChange={setLanguage} />
+              <PillSelect value={imageMode} options={IMAGE_MODE_OPTS} onChange={setImageMode} />
+              <PillSelect value={templateId} options={tplOptions} onChange={setTemplateId} />
+              <button
+                type="button"
+                title={hasTavily ? '规划前先搜索最新资料（用自己的 Key 免费）' : '规划前先搜索最新资料（平台 Key，1 积分/次搜索）'}
+                onClick={() => setResearch(!research)}
+                className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors ${
+                  research
+                    ? 'border-blue-300 bg-blue-50 font-medium text-blue-700'
+                    : 'border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300'
+                }`}
+              >
+                <Globe className="h-3.5 w-3.5" />联网研究
+              </button>
+            </>
+          )}
+          {!isGenMode && mode !== 'create_template' && (
+            <span className="ml-1 text-xs text-neutral-400">
+              {mode === 'beautify' && (srcFile.pptx ? `${srcFile.pptx.filename} · 1:1 保内容重排` : '请上传 PPTX →')}
+              {mode === 'edit_native' && (srcFile.pptx ? `${srcFile.pptx.filename} · 只改指令命中的页` : '请上传 PPTX →')}
+              {mode === 'image_to_pptx' && (shots.items.length ? `${shots.items.length} 张截图 · 按序重建` : '请上传截图 →')}
+            </span>
+          )}
+          {mode === 'create_template' && (
+            <span className="ml-1 text-xs text-neutral-400">{srcFile.pptx ? `参考稿：${srcFile.pptx.filename}` : '参考稿可选 · 免费'}</span>
+          )}
 
-          {/* 提交（独立行右对齐；计费信息已在底部说明行，不放徽章） */}
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!canSubmit}
-              title={submitLabel}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-neutral-950 text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
-            >
-              {busy ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={19} />}
-            </button>
-          </div>
+          {/* 提交（同一行，右侧） */}
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit}
+            title={submitLabel}
+            className="ml-auto grid h-10 w-10 shrink-0 place-items-center rounded-full bg-neutral-950 text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+          >
+            {busy ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={19} />}
+          </button>
         </div>
 
         {/* 上传文件缩略区（有内容时显示） */}
