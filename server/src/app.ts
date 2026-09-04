@@ -530,7 +530,7 @@ export async function buildApp(opts: AppOptions) {
     const rows = db
       .prepare(`SELECT t.id, t.name, t.description, t.style_json, t.kind, t.pages_json, t.cover_svg, t.created_by, t.created_at, t.updated_at, u.username AS created_by_name
                 FROM templates t LEFT JOIN users u ON u.id = t.created_by
-                WHERE t.created_by=? OR t.created_by='admin' ORDER BY t.updated_at DESC`)
+                WHERE t.created_by=? ORDER BY t.updated_at DESC`)
       .all(auth.uid) as any[];
     return {
       templates: rows.map((r) => {

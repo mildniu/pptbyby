@@ -123,8 +123,11 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
   }
 
   // decks（场景：页面原型 + 品牌素材）
+  // EXCLUDED_DECKS：不进公共内置库的 deck（作为 admin 私有模板单独入库）
+  const EXCLUDED_DECKS = new Set(['hebei_telecom']);
   const decksIdx = readJson(join(tRoot, 'decks', 'decks_index.json')) ?? {};
   for (const [id, meta] of Object.entries<any>(decksIdx)) {
+    if (EXCLUDED_DECKS.has(id)) continue;
     const dir = join(tRoot, 'decks', id);
     const protos = imgEntries(join(dir, 'templates'), 'svg');     // 页面原型
     const assets = imgEntries(join(dir, 'images'), 'image');       // logo/横幅等素材
