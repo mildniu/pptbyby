@@ -512,7 +512,8 @@ async function generatePageSvg(
     `设计规格（JSON）：${JSON.stringify({ title: spec.title, style: spec.style })}`,
     `本页规格：${JSON.stringify(page)}（第 ${pageNum}/${totalPages} 页）`,
     spec.images.length
-      ? `可用图片资源（用 <image href="../images/文件名" .../> 引用，遵守 image 规范的 preserveAspectRatio 裁切约定）：${JSON.stringify(spec.images.filter((i) => i.status === 'done' || i.status === 'ready').map((i) => ({ file: i.file, usage: i.usage })))}`
+      ? `可用图片资源（用 <image href="../images/文件名" .../> 引用，遵守 image 规范的 preserveAspectRatio 裁切约定）：${JSON.stringify(spec.images.filter((i) => i.status === 'done' || i.status === 'ready').map((i) => ({ file: i.file, usage: i.usage })))}
+品牌元素硬规则：标注"模板品牌元素"的图片必须严格按 usage 给出的位置与尺寸引用，不得移位、缩放、复用到其他页面或改作他用；每页只使用该页对应位置列出的品牌元素。`
       : '本项目没有图片资源，不要使用 <image>。',
     prevSummaries.length ? `已完成页面的简要摘要（保持视觉延续性，避免重复布局）：\n${prevSummaries.join('\n')}` : '',
     '',
@@ -699,7 +700,8 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
         const srcDir = join(deps.dataDir, 'template-assets', tid.replace(/[:/]/g, '_'));
         const dstDir = join(projectPath, 'images');
         mkdirSync(dstDir, { recursive: true });
-        // 从原型 SVG 提取每个素材的真实使用位置（x,y,w,h），生成精确的 usage 提示
+        // 从原型 SVG 提取每个素材的真实使用位置（x,y,w,h）——只有原型实际使用的素材才注入；
+        // 未被原型使用的备用素材（如品牌横幅变体）不注入，避免 Executor 误用导致品牌元素错乱
         let protoPagesForAssets: string[] = [];
         try { protoPagesForAssets = JSON.parse(tpl.pages_json ?? '[]'); } catch { /* ignore */ }
         const usageOf = (fname: string): string => {
@@ -715,21 +717,24 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
               if (x && y) uses.push(`(${x},${y}${w ? ` 尺寸${w}x${h ?? '?'}` : ''})`);
             }
           }
-          return uses.length ? `模板品牌元素（${fname}），原型中的使用位置：${uses.slice(0, 4).join('、')}——生成对应页面时用 <image href="../images/tpl_${fname}" .../> 在相同位置引用` : `模板品牌元素（${fname}），按模板原型位置使用`;
+          return uses.length ? `模板品牌元素（${fname}），原型中的使用位置：${uses.slice(0, 4).join('、')}——在对应页面的相同位置用 <image href="../images/tpl_${fname}" .../> 引用，保持原始尺寸` : '';
         };
         let copiedCount = 0;
+        let skipped = 0;
         for (const fname of tplAssetNames) {
+          const usage = usageOf(fname);
+          if (!usage) { skipped++; continue; } // 原型未使用的素材不注入
           const sf = join(srcDir, fname);
           if (existsSync(sf)) {
             copyFileSync(sf, join(dstDir, `tpl_${fname}`));
             spec.images.push({
-              id: `tpl_${fname}`, desc: '模板素材（logo/装饰）', usage: usageOf(fname),
+              id: `tpl_${fname}`, desc: '模板品牌元素（仅按原型位置使用，勿改动尺寸/位置）', usage,
               origin: 'user', file: `tpl_${fname}`, status: 'ready',
             });
             copiedCount++;
           }
         }
-        log('ORCH', `任务 ${taskId} 模板素材复制 ${copiedCount}/${tplAssetNames.length}（${tid}）`);
+        log('ORCH', `任务 ${taskId} 模板素材复制 ${copiedCount}/${tplAssetNames.length}（跳过 ${skipped} 个原型未用素材）（${tid}）`);
       }
     }
     const projectDir = basename(projectPath);
