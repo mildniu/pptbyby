@@ -11,7 +11,19 @@ function InlineSvg({ url, className }: { url: string; className?: string }) {
     let alive = true;
     fetch(url, { credentials: 'include' })
       .then((r) => (r.ok ? r.text() : Promise.reject()))
-      .then((t) => alive && setSvg(t))
+      .then((t) => {
+        if (!alive) return;
+        // 内联渲染时相对图片引用（../images/）按页面 URL 解析会 404——重写为基于 SVG URL 的绝对路径
+        const base = new URL(url, location.href);
+        const fixed = t.replace(/(href="|xlink:href=")(\.\.\/[^"]+)(")/g, (_m, pre, rel, post) => {
+          try {
+            return `${pre}${new URL(rel, base).pathname}${post}`;
+          } catch {
+            return _m;
+          }
+        });
+        setSvg(fixed);
+      })
       .catch(() => alive && setSvg(null));
     return () => { alive = false; };
   }, [url]);
