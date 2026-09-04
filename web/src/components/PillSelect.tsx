@@ -130,7 +130,7 @@ export function PillSelect({
           style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
           className={cn(
             'fixed z-[60] max-h-[min(60vh,320px)] overflow-y-auto rounded-[18px] border border-neutral-200 bg-white p-1.5 shadow-[0_18px_50px_rgba(15,23,42,.20)] no-scrollbar',
-            wide ? 'min-w-[220px]' : 'min-w-[132px]'
+            wide ? 'min-w-[240px]' : 'min-w-[150px] max-w-[280px]'
           )}
         >
           {options.map((opt) => {

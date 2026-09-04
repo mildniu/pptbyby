@@ -264,9 +264,9 @@ export default function CreatePage() {
 
 
 
-        {/* 底部控制栏 */}
-        <div className="mt-2.5 flex flex-col items-stretch justify-between gap-2.5 sm:flex-row sm:items-center">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-2 sm:flex-nowrap max-sm:overflow-x-auto max-sm:pb-1">
+        {/* 底部控制栏：选择器行（可换行）+ 操作行（积分/提交）分两行，窄屏不挤压 */}
+        <div className="mt-2.5 flex flex-col gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-2">
             {/* 上传按钮（语义随模式） */}
             <input ref={fileRef} type="file"
               accept={mode === 'beautify' || mode === 'edit_native' ? '.pptx' : mode === 'create_template' ? '.pptx,image/*' : 'image/*'}
@@ -299,7 +299,7 @@ export default function CreatePage() {
                 <PillSelect value={format} options={FORMAT_OPTS} onChange={setFormat} />
                 <PillSelect value={language} options={LANG_OPTS} onChange={setLanguage} />
                 <PillSelect value={imageMode} options={IMAGE_MODE_OPTS} onChange={setImageMode} />
-                <PillSelect value={templateId} options={tplOptions} onChange={setTemplateId} wide />
+                <PillSelect value={templateId} options={tplOptions} onChange={setTemplateId} />
                 <button
                   type="button"
                   title={hasTavily ? '规划前先搜索最新资料（用自己的 Key 免费）' : '规划前先搜索最新资料（平台 Key，1 积分/次搜索）'}
@@ -326,8 +326,8 @@ export default function CreatePage() {
             )}
           </div>
 
-          {/* 积分提示 + 提交 */}
-          <div className="flex shrink-0 items-center gap-3">
+          {/* 积分提示 + 提交（独立行右对齐，避免与选择器挤压重叠） */}
+          <div className="flex items-center justify-end gap-3">
             <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-0.5 text-[11px] font-medium text-neutral-600">
               {mode === 'create_template' ? '免费' : isGenMode ? (pages === '0' ? 'AI 定页数计费' : `${pages}+ 积分`) : '按页计费'}
             </span>
@@ -375,7 +375,7 @@ export default function CreatePage() {
       </div>
 
       <p className="mt-3 text-center text-xs text-neutral-400">
-        {MODES.find((m) => m.id === mode)?.desc} · 1 积分/页，AI 配图每张 +1，失败自动退还
+        1 积分/页 · AI 配图每张 +1 · 失败自动退还{research ? ' · 联网搜索 1 积分/次' : ''}
       </p>
 
       {/* 模板画廊（仅生成模式）：预览 + 一键选风格 */}
