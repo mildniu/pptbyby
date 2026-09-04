@@ -74,8 +74,11 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
   const media = (rel: string) => mediaUrl(rel);
 
   // brands（品牌 identity：色板+字体+语气；部分品牌带 logo 素材）
+  // EXCLUDED_BRANDS：不进公共内置库的品牌（作为 admin 私有模板单独入库）
+  const EXCLUDED_BRANDS = new Set(['中国电信']);
   const brandsIdx = readJson(join(tRoot, 'brands', 'brands_index.json')) ?? {};
   for (const [id, meta] of Object.entries<any>(brandsIdx)) {
+    if (EXCLUDED_BRANDS.has(id)) continue;
     const imgs = imgEntries(join(tRoot, 'brands', id, 'images'), 'image').slice(0, 4);
     out.push({
       id: `builtin:brand/${id}`,
@@ -124,7 +127,7 @@ export function loadBuiltinTemplates(): BuiltinTemplate[] {
 
   // decks（场景：页面原型 + 品牌素材）
   // EXCLUDED_DECKS：不进公共内置库的 deck（作为 admin 私有模板单独入库）
-  const EXCLUDED_DECKS = new Set(['hebei_telecom']);
+  const EXCLUDED_DECKS = new Set(['hebei_telecom', '中国电信']);
   const decksIdx = readJson(join(tRoot, 'decks', 'decks_index.json')) ?? {};
   for (const [id, meta] of Object.entries<any>(decksIdx)) {
     if (EXCLUDED_DECKS.has(id)) continue;
