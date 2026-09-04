@@ -335,7 +335,18 @@ export async function planTask(deps: OrchestratorDeps, taskId: string): Promise<
               const protos = pages.slice(0, 8).map((svg, i) =>
                 `=== 原型 ${String(i + 1).padStart(2, '0')} ===\n${svg.slice(0, 12000)}`
               ).join('\n\n');
-              constraint += `\n\n## Page Roster（页面角色与版式，规划时按此分配页面）\n${roster}\n\n## 原型 SVG（脱敏版式参考；生成页面须遵循对应原型的版式结构与视觉元素，内容用新主题）：\n${protos}`;
+              // 程序化提取原型的 Master 层品牌元素（页眉 logo/标识/分隔线等 data-pptx-layer="master"），
+              // 作为每页必须原样保留的固定品牌页眉——不依赖模型从原型全文中自觉发现
+              const masterElements = new Set<string>();
+              for (const svg of pages.slice(0, 8)) {
+                for (const m of svg.matchAll(/<[^>]*data-pptx-layer="master"[^>]*\/?>/g)) {
+                  masterElements.add(m[0]);
+                }
+              }
+              const masterBlock = masterElements.size
+                ? `\n\n## 品牌页眉/固定元素（每页必须原样包含，不得省略/改动位置/改字号）\n${[...masterElements].join('\n')}`
+                : '';
+              constraint += `\n\n## Page Roster（页面角色与版式，规划时按此分配页面）\n${roster}\n\n## 原型 SVG（脱敏版式参考；生成页面须遵循对应原型的版式结构与视觉元素，内容用新主题）：\n${protos}${masterBlock}`;
             } catch { /* ignore */ }
           }
           templateConstraint = constraint;
@@ -817,6 +828,69 @@ export async function startExecution(deps: OrchestratorDeps, taskId: string, spe
       setStep(deps, taskId, 'pages', 'failed', '全部页面失败');
       throw new Error('所有页面生成失败');
     }
+
+    // 品牌页眉补全（deck 模板）：程序化检查每页是否含模板 Master 层品牌元素，
+    // 缺失时自动补入——确定性保障，不依赖模型每次自觉
+    if (params.templateId && spec.images.some((im) => im.desc?.includes('模板品牌元素'))) {
+      const tpl = deps.db.prepare('SELECT pages_json FROM templates WHERE id=?').get(params.templateId) as any;
+      if (tpl?.pages_json) {
+        try {
+          const protoPages: string[] = JSON.parse(tpl.pages_json);
+          // 收集 master 元素（去重，排除背景 rect——每页已有自己的背景）
+          const masterSet = new Map<string, string>();
+          for (const psvg of protoPages.slice(0, 8)) {
+            for (const m of psvg.matchAll(/<[^>]*data-pptx-layer="master"[^>]*\/?>/g)) {
+              const el = m[0];
+              const idm = el.match(/id="([^"]+)"/);
+              if (idm && !idm[1].includes('bg')) masterSet.set(idm[1], el); // 排除背景
+            }
+          }
+          if (masterSet.size) {
+            // 存在性检测用内容特征而非 id：logo 看图片文件名、文本看其内容、线看 y 坐标
+            const checks = [...masterSet.values()].map((el) => {
+              let marker: string;
+              const hrefM = el.match(/href="[^"]*\/([^"]+)"/);
+              if (hrefM) marker = hrefM[1]; // logo 等图片：按文件名
+              else {
+                // 文本元素：拼接全部内层文本（含 tspan）作为 marker——5G+tspan+ → "5G+"
+                const innerTexts = [...el.matchAll(/>([^<]+)</g)].map((t) => t[1].trim()).join('');
+                if (innerTexts) marker = innerTexts.slice(0, 10);
+                else {
+                  const yM = el.match(/y1="([\d.]+)"/) ?? el.match(/\by="([\d.]+)"/);
+                  marker = yM ? yM[1] : el.slice(0, 40); // 线/形状：按坐标
+                }
+              }
+              return { el, marker };
+            });
+            let patched = 0;
+            for (let i = 0; i < total; i++) {
+              const svgFile = join(svgDir, `slide_${String(i + 1).padStart(2, '0')}.svg`);
+              if (!existsSync(svgFile)) continue;
+              let svg = readFileSync(svgFile, 'utf8');
+              // 已有页面自己的品牌等价物则不补：图片按文件名；文本按拼接内容
+              // （页面把 5G+ 拆在 tspan 时，去标签后的纯文本流中应能找到完整 marker）
+              const svgTextStream = svg.replace(/<[^>]+>/g, '');
+              const missing = checks.filter((c) => !(svg.includes(c.marker) || svgTextStream.includes(c.marker)));
+              if (!missing.length) continue;
+              // 补入元素：图片引用加 tpl_ 前缀；id 加 mp_ 前缀避免与页面 id 冲突；
+              // 去 data-pptx-layer/editable 属性（扁平输出不需要，且避免结构违规）
+              const patch = missing.map((c) => c.el
+                .replace(/href="\.\.\/images\//g, 'href="../images/tpl_')
+                .replace(/\sid="([^"]+)"/g, ' id="mp_$1"')
+                .replace(/\sdata-pptx-layer="master"/g, '')
+                .replace(/\sdata-pptx-editable="false"/g, '')
+              ).join('\n');
+              const insertAt = svg.indexOf('>', svg.indexOf('<svg')) + 1;
+              svg = svg.slice(0, insertAt) + '\n  ' + patch + svg.slice(insertAt);
+              writeFileSync(svgFile, svg);
+              patched++;
+            }
+            if (patched) log('ORCH', `任务 ${taskId} 品牌页眉补全：${patched} 页补入缺失元素`);
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
     setStep(deps, taskId, 'pages', 'done', `${okPages}/${total} 页完成${total - okPages ? `，${total - okPages} 页失败` : ''}`);
 
     // 3) 终检（上游契约：--quick-generate --canonical-authoring --stage final），失败则带错误修复并复检，最多 2 轮
