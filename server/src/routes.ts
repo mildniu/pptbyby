@@ -563,6 +563,22 @@ export async function runCreateTemplate(deps: any, taskId: string): Promise<void
             return tplKind === 'deck' ? sanitizeProto(raw, fi, take.length) : raw;
           });
           if (protoPages.length) coverSvg = protoPages[0];
+          // SVG 全量色频统计（补 intake 观测器漏掉的表格填充色等——
+          // 源稿高频但 intake 只统计文本颜色的场景，如 Excel 风格表格底色）
+          {
+            const freq: Record<string, number> = {};
+            const files2 = readdirSync(svgDir).filter((f) => f.endsWith('.svg')).sort();
+            for (const f of files2) {
+              const svgRaw = readFileSync(join(svgDir, f), 'utf8');
+              for (const m of svgRaw.matchAll(/fill="(#[0-9A-Fa-f]{6})"/g)) {
+                freq[m[1].toUpperCase()] = (freq[m[1].toUpperCase()] ?? 0) + 1;
+              }
+            }
+            const top = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 12);
+            if (top.length) {
+              refContent += `\n\n== SVG 全量色频（含表格/形状填充，按真实使用次数）==\n${top.map(([c, n]) => `${c}: ${n} 次`).join('\n')}`;
+            }
+          }
           // 收集原型引用的图片（logo/装饰条等）到素材清单
           if (tplKind === 'deck') {
             const wsImagesDir = join(tmpWs, 'images');
